@@ -102,7 +102,10 @@
             <div><h2 id="practice-heading">Practice setup</h2><p>Choose where and how to begin.</p></div>
           </div>
           <div class="settings">
-            <div class="field"><label for="start-bar">Start at</label><select id="start-bar"><option>Bar 1</option></select></div>
+            <div class="bar-fields">
+              <div class="field"><label for="start-bar">Start at</label><select id="start-bar"><option>Bar 1</option></select></div>
+              <div class="field"><label for="end-bar">End after</label><select id="end-bar" disabled><option value="">End of score</option></select></div>
+            </div>
             <div class="field"><label for="practice-mode">Practice mode</label><select id="practice-mode"><option value="free">Free tempo</option><option value="timed">Scored tempo</option></select></div>
             <div class="field bpm-field" id="bpm-field" hidden><label for="bpm">Target tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
           </div>
@@ -129,6 +132,17 @@
           <div class="note-readout" id="result-metrics"></div>
           <p class="result-detail" id="timing-detail" hidden></p>
           <ul class="result-list" id="result-list"></ul>
+          <div class="coach" id="coach" hidden>
+            <button class="button button-outline coach-button" id="coach-ask" type="button"><svg><use href="#i-sliders"/></svg><span>What should I practise next?</span></button>
+            <div class="coach-result" id="coach-result" aria-live="polite" hidden>
+              <p class="coach-target" id="coach-target"></p>
+              <p class="coach-drill" id="coach-drill"></p>
+              <p class="coach-source" id="coach-source"></p>
+              <button class="button button-subtle coach-jump" id="coach-jump" type="button">Practise this bar</button>
+            </div>
+            <p class="coach-error" id="coach-error" role="alert" hidden></p>
+          </div>
+          <button class="button button-outline retry-button" id="retry" type="button">Practise again</button>
         </section>
       </aside>
     </div>
@@ -151,9 +165,9 @@
     <h2 id="help-heading">How it works</h2>
     <ol class="help-steps">
       <li><strong>Open a score.</strong> Use Morning Lines or upload a single-melody MusicXML file.</li>
-      <li><strong>Pick a bar and listen.</strong> Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in.</li>
+      <li><strong>Pick a passage and listen.</strong> Choose a start bar and an optional end bar. Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in.</li>
       <li><strong>Play across the page break.</strong> PaperTempo previews the next page and turns when you play its first note.</li>
-      <li><strong>Review your take.</strong> Stop listening to open the results. Select a result to return to its bar.</li>
+      <li><strong>Review your take.</strong> Select a result to return to its bar, or choose Practise again to replay the same passage.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>
   </dialog>

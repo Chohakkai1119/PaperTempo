@@ -10,13 +10,15 @@ const text = (id, value) => {
 const state = {
   score: null, index: 0, page: 1, shownPage: null, shownPreview: null,
   matched: null, matchTimer: null, mic: null, opening: false, take: null,
-  countIn: null, lastSignal: 0, pdfURL: null, loading: 0,
+  countIn: null, lastSignal: 0, pdfURL: null, loading: 0, completed: false,
 };
 const notation = byId('notation');
 const preview = byId('preview-notation');
 const barSelect = byId('start-bar');
+const endBarSelect = byId('end-bar');
 const modeSelect = byId('practice-mode');
 const listen = byId('listen');
+const retry = byId('retry');
 const scoreFile = byId('score-file');
 const uploadDialog = byId('upload-dialog');
 const uploadError = byId('upload-error');
@@ -46,7 +48,9 @@ function showPreview() {
   const nextPage = state.page + 1;
   const initial = notes.find((note) => note.page === nextPage);
   const lastOnPage = notes.findLastIndex((note) => note.page === state.page);
-  const visible = Boolean(initial && nextPage <= pages.length && state.index >= Math.max(0, lastOnPage - 3));
+  const endBar = endBarSelect.value;
+  const visible = Boolean(!state.completed && initial && nextPage <= pages.length
+    && (endBar === '' || initial.measure <= Number(endBar)) && state.index >= Math.max(0, lastOnPage - 3));
   byId('page-preview').hidden = !visible;
   if (!visible || state.shownPreview === nextPage) return;
   const openingBar = state.score.bars[initial.measure].label;
@@ -58,8 +62,8 @@ function showPreview() {
 function refreshScore() {
   if (!state.score) return;
   const { notes, pages } = state.score;
-  const next = notes[state.index];
-  const position = next || notes.at(-1);
+  const next = state.completed ? null : notes[state.index];
+  const position = next || notes[state.index - 1];
   loadPageMarkup();
   clearMarks(notation);
   if (state.matched?.page === state.page) markNote(notation, state.matched.id, 'matched');
@@ -72,6 +76,14 @@ function refreshScore() {
   byId('prev-note').disabled = state.index <= 0 || Boolean(state.mic);
   byId('next-note').disabled = state.index >= notes.length - 1 || Boolean(state.mic);
   showPreview();
+}
+
+function updateEndBars(startIndex) {
+  const firstMeasure = state.score.notes[startIndex].measure;
+  for (const option of endBarSelect.options) {
+    option.disabled = option.value !== '' && Number(option.value) < firstMeasure;
+  }
+  if (endBarSelect.selectedOptions[0]?.disabled) endBarSelect.value = '';
 }
 
 function micLabel(label, tone = '') {
@@ -87,6 +99,7 @@ function showListening() {
   listen.querySelector('use').setAttribute('href', live ? '#i-stop' : '#i-mic');
   listen.querySelector('span').textContent = live ? 'Stop listening' : 'Start listening';
   listen.disabled = state.opening || !state.score;
+  endBarSelect.disabled = live || listen.disabled;
 }
 
 function showResults(take, cancelled) {
@@ -139,6 +152,116 @@ function showResults(take, cancelled) {
     row.append(button);
     return row;
   }));
+  retry.onclick = async () => {
+    if (state.opening || state.mic) return;
+    jumpToIndex(take.startIndex);
+    barSelect.value = String(take.startBar);
+    endBarSelect.value = take.endBar;
+    modeSelect.value = take.bpm === null ? 'free' : 'timed';
+    byId('bpm-field').hidden = take.bpm === null;
+    if (take.bpm !== null) byId('bpm').value = String(take.bpm);
+    await startListening();
+    if (state.mic) listen.focus();
+  };
+  setupCoach(take, cancelled);
+}
+
+// ---- Practice coach: POST measured numbers (never audio) to /api/drill.
+// Agreed shape only: { piece, bars: [{ bar, missedNotes, timingOffsetsMs }] }.
+// Extra (wrong) notes are deliberately left out; the server treats offsets
+// beyond ±2000 ms as a late start rather than a timing error.
+
+let coachRequest = 0;
+
+function coachPayload(take) {
+  const { bars } = state.score;
+  const perBar = new Map();
+  const entry = (note) => {
+    if (!perBar.has(note.measure)) perBar.set(note.measure, { bar: bars[note.measure].label, missedNotes: 0, timingOffsetsMs: [] });
+    return perBar.get(note.measure);
+  };
+  for (const note of take.missed) entry(note).missedNotes += 1;
+  for (const { note, delta } of take.matched) {
+    const item = entry(note);
+    if (Number.isFinite(delta)) item.timingOffsetsMs.push(Math.round(delta));
+  }
+  const measures = [...perBar.keys()].sort((a, b) => a - b);
+  return {
+    piece: (state.score.title || 'Untitled score').slice(0, 120),
+    bars: measures.map((measure) => perBar.get(measure)),
+  };
+}
+
+function setupCoach(take, cancelled) {
+  const coach = byId('coach');
+  const ask = byId('coach-ask');
+  const label = ask.querySelector('span');
+  const resultBox = byId('coach-result');
+  const errorBox = byId('coach-error');
+  const score = state.score;
+  coachRequest += 1;
+  resultBox.hidden = true;
+  errorBox.hidden = true;
+  ask.disabled = false;
+  ask.removeAttribute('aria-busy');
+  label.textContent = 'What should I practise next?';
+
+  const payload = take.bpm && !cancelled ? coachPayload(take) : null;
+  coach.hidden = !payload || payload.bars.length === 0;
+  if (coach.hidden) return;
+
+  ask.onclick = async () => {
+    const request = ++coachRequest;
+    ask.disabled = true;
+    ask.setAttribute('aria-busy', 'true');
+    label.textContent = 'Finding a drill…';
+    errorBox.hidden = true;
+    resultBox.hidden = true;
+    try {
+      const response = await fetch('/api/drill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await response.json().catch(() => null);
+      if (request !== coachRequest || score !== state.score) return;
+      if (!response.ok || !data?.drill) {
+        throw new Error(response.status === 429
+          ? 'You have asked a few times in a row. Wait a minute, then try again.'
+          : response.status === 404
+            ? 'The practice coach is not running here. Start the site with npm run dev to use it locally.'
+            : 'The practice coach could not suggest a drill right now. Please try again.');
+      }
+      const measure = score.bars.findIndex((bar) => bar.label === String(data.targetBar));
+      text('coach-target', `Focus on Bar ${data.targetBar}`);
+      text('coach-drill', data.drill);
+      text('coach-source', data.source === 'cortex' ? 'Coach (Snowflake Cortex)' : 'Quick tip (coach unavailable)');
+      const jump = byId('coach-jump');
+      jump.hidden = measure < 0;
+      jump.onclick = () => {
+        if (state.opening || state.mic || score !== state.score) return;
+        jumpToBar(measure);
+        const end = [...endBarSelect.options].find((option) => option.value === String(measure));
+        if (end && !end.disabled) endBarSelect.value = String(measure);
+        showPreview();
+        barSelect.focus({ preventScroll: true });
+        byId('score-heading').scrollIntoView({ block: 'nearest' });
+      };
+      resultBox.hidden = false;
+    } catch (error) {
+      if (request !== coachRequest) return;
+      const offline = error?.name === 'TimeoutError' || error instanceof TypeError;
+      errorBox.textContent = offline ? 'Could not reach the practice coach. Check your connection and try again.' : error.message;
+      errorBox.hidden = false;
+    } finally {
+      if (request === coachRequest) {
+        ask.disabled = false;
+        ask.removeAttribute('aria-busy');
+        label.textContent = 'What should I practise next?';
+      }
+    }
+  };
 }
 
 function stopListening({ report = true, complete = false } = {}) {
@@ -148,7 +271,11 @@ function stopListening({ report = true, complete = false } = {}) {
   state.mic = null;
   state.take = null;
   state.countIn = null;
-  if (complete) barSelect.value = String(take.notes[take.startIndex].measure);
+  if (complete) {
+    state.completed = true;
+    barSelect.value = String(take.startBar);
+  }
+  if (take) updateEndBars(complete ? take.startIndex : state.index);
   byId('count').hidden = true;
   showListening();
   micLabel(complete ? 'Passage complete' : 'Microphone off');
@@ -162,10 +289,12 @@ function jumpToIndex(index, keepPage = false) {
   if (state.mic) stopListening();
   clearTimeout(state.matchTimer);
   state.matched = null;
+  state.completed = false;
   state.index = index;
   const note = state.score.notes[index];
   if (!keepPage) state.page = note.page;
   barSelect.value = String(note.measure);
+  updateEndBars(index);
   refreshScore();
 }
 
@@ -213,20 +342,22 @@ function receiveNote({ midi, at }) {
   state.matched = result.note;
   state.page = result.note.page;
   state.index = take.cursor;
-  const next = state.score.notes[state.index];
-  if (next) barSelect.value = String(next.measure);
-  refreshScore();
   clearTimeout(state.matchTimer);
   state.matchTimer = setTimeout(() => {
     state.matched = null;
     refreshScore();
   }, 460);
-  if (!next) stopListening({ complete: true });
+  if (take.cursor === take.endIndex) {
+    stopListening({ complete: true });
+  } else {
+    barSelect.value = String(take.notes[take.cursor].measure);
+    refreshScore();
+  }
 }
 
 async function startListening() {
   if (!state.score || state.opening) return;
-  if (state.index >= state.score.notes.length) jumpToBar(Number(barSelect.value));
+  if (state.completed) jumpToBar(Number(barSelect.value));
   const bpmField = byId('bpm');
   const bpm = modeSelect.value === 'timed' ? Number(bpmField.value) : null;
   if (modeSelect.value === 'timed' && !bpmField.reportValidity()) return;
@@ -246,8 +377,16 @@ async function startListening() {
     const current = state.score.notes[state.index];
     const startBar = state.score.bars[Number(barSelect.value)];
     const firstOfBar = state.score.notes.findIndex((note) => note.measure >= startBar.index) === state.index;
+    const endBar = endBarSelect.value;
+    const firstBeyondEnd = endBar === '' ? -1 : score.notes.findIndex((note) => note.measure > Number(endBar));
+    const endIndex = firstBeyondEnd === -1 ? score.notes.length : firstBeyondEnd;
+    const startBeat = firstOfBar ? startBar.beat : current.beat;
     state.countIn = bpm ? scheduleCountIn(mic.context, bpm) : null;
-    state.take = createTake(score.notes, state.index, firstOfBar ? startBar.beat : current.beat, bpm, state.countIn?.downbeat ?? null);
+    state.take = {
+      ...createTake(score.notes, state.index, startBeat, bpm, state.countIn?.downbeat ?? null, endIndex),
+      startBar: startBar.index,
+      endBar,
+    };
     state.lastSignal = 0;
     byId('count').hidden = !bpm;
     micLabel(bpm ? 'Count-in · get ready' : 'Listening · waiting for a note', 'active');
@@ -269,6 +408,7 @@ async function startListening() {
 function mount(score, pdf = null) {
   stopListening({ report: false });
   byId('results').hidden = true;
+  retry.onclick = null;
   state.score = score;
   state.shownPage = null;
   state.shownPreview = null;
@@ -284,7 +424,9 @@ function mount(score, pdf = null) {
   const count = score.pages.length;
   text('score-meta', `${label} · ${count} ${count === 1 ? 'page' : 'pages'}`);
   const lastBar = score.notes.at(-1).measure;
-  barSelect.replaceChildren(...score.bars.slice(0, lastBar + 1).map((bar) => new Option(barLabel(bar.index), bar.index)));
+  const practiceBars = score.bars.slice(0, lastBar + 1);
+  barSelect.replaceChildren(...practiceBars.map((bar) => new Option(barLabel(bar.index), bar.index)));
+  endBarSelect.replaceChildren(new Option('End of score', ''), ...practiceBars.map((bar) => new Option(barLabel(bar.index), bar.index)));
   jumpToIndex(0);
   showListening();
 }
@@ -341,6 +483,7 @@ async function importFiles(files) {
 
 listen.addEventListener('click', () => state.mic ? stopListening() : void startListening());
 barSelect.addEventListener('change', () => jumpToBar(Number(barSelect.value)));
+endBarSelect.addEventListener('change', showPreview);
 modeSelect.addEventListener('change', () => { byId('bpm-field').hidden = modeSelect.value !== 'timed'; });
 byId('prev-page').addEventListener('click', () => goToPage(-1));
 byId('next-page').addEventListener('click', () => goToPage(1));

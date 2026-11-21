@@ -1,9 +1,9 @@
 export const TIMING_TOLERANCE = 120;
 export const MIN_TIMED_MATCHES = 3;
 
-export function createTake(notes, startIndex, startBeat, bpm, downbeat) {
+export function createTake(notes, startIndex, startBeat, bpm, downbeat, endIndex = notes.length) {
   return {
-    notes, startIndex, startBeat, bpm, downbeat, cursor: startIndex,
+    notes, startIndex, endIndex, startBeat, bpm, downbeat, cursor: startIndex,
     earlier: null, matched: [], missed: [], extras: [],
   };
 }
@@ -22,12 +22,12 @@ function lookaheadInTime(take, candidate, at) {
 }
 
 export function acceptNote(take, midi, at) {
-  const { notes, cursor, earlier } = take;
-  if (cursor >= notes.length || (take.bpm && at < take.downbeat - 140)) return { type: 'ignored' };
+  const { notes, cursor, earlier, endIndex } = take;
+  if (cursor >= endIndex || (take.bpm && at < take.downbeat - 140)) return { type: 'ignored' };
   const expected = notes[cursor];
   let matchIndex = midi === expected.midi ? cursor : -1;
   if (matchIndex < 0) {
-    for (let index = cursor + 1; index <= Math.min(cursor + 2, notes.length - 1); index += 1) {
+    for (let index = cursor + 1; index <= Math.min(cursor + 2, endIndex - 1); index += 1) {
       const candidate = notes[index];
       if (candidate.midi === midi && lookaheadInTime(take, candidate, at)) {
         matchIndex = index;
