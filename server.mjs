@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dist');
+const localConverter = path.join(path.dirname(fileURLToPath(import.meta.url)), 'pdf2music', '.venv', process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'pdf2music.exe' : 'pdf2music');
+const converter = process.env.PDF2MUSIC_BIN || (existsSync(localConverter) ? localConverter : 'pdf2music');
 const port = Number(process.env.PORT || 8000);
 const maxPdfBytes = 20 * 1024 * 1024;
 const maxRequestBytes = maxPdfBytes + 64 * 1024;
@@ -64,7 +67,7 @@ async function convert(request, response) {
     await mkdir(output);
     await writeFile(input, file.data, { flag: 'wx' });
     try {
-      await execFileAsync(process.env.PDF2MUSIC_BIN || 'pdf2music', [input, '--output', output, '--format', 'musicxml'], {
+      await execFileAsync(converter, [input, '--output', output, '--format', 'musicxml'], {
         timeout: 600_000,
         maxBuffer: 2 * 1024 * 1024,
         windowsHide: true,

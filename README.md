@@ -15,10 +15,10 @@ uv sync
 The first conversion downloads about 110 MB of OMR model weights and may take several minutes. Start PaperTempo in a second terminal from this repository:
 
 ```sh
-PDF2MUSIC_BIN="/path/to/pdf2music/.venv/bin/pdf2music" node server.mjs
+node server.mjs
 ```
 
-On Windows, set `PDF2MUSIC_BIN` to the converter's `.venv\\Scripts\\pdf2music.exe` path. If the executable is on `PATH`, simply run `node server.mjs`. Open `http://localhost:8000`. The server serves the website and `/api/convert`; microphone access requires a secure context such as localhost or HTTPS and browser permission. For a public deployment, put the Node server behind HTTPS and configure `HOST` and `PORT` for the host.
+When the converter is installed in this repository's `pdf2music` subfolder, PaperTempo finds its virtual-environment executable automatically. Otherwise, put `pdf2music` on `PATH` or set `PDF2MUSIC_BIN` to its full executable path. Open `http://localhost:8000`. The server serves the website and `/api/convert`; microphone access requires a secure context such as localhost or HTTPS and browser permission. For a public deployment, put the Node server behind HTTPS and configure `HOST` and `PORT` for the host.
 
 Uploaded PDFs are temporarily stored on the server while converting, then removed. The conversion engine runs locally on the server; it does not send scores to a third-party conversion service. The [pdf2music project](https://github.com/pllopis/pdf2music) and its OMR engine are AGPL-3.0 licensed; review that license before distributing a deployment that includes the converter.
 
