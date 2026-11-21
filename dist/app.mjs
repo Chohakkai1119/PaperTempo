@@ -7,11 +7,13 @@ import { createPlayback, InstrumentSampleError } from './playback.mjs';
 import { VISIBLE_ROWS, clampWindowTop, windowRows, windowTopForRow } from './rows.mjs';
 import {
   acceptPerformance, advancePerformance, completedTakeSummary, createTake, mistakePassage,
-  restartSettings, samePracticePassage, summarize, updateInputHealth,
+  restartSettings, samePracticePassage, summarize, timingTolerance, updateInputHealth, visibleDownbeat,
 } from './practice.mjs';
 
 // An attack may arrive after its sample frame while pitch evidence stabilizes.
 const DETECTION_GRACE_MS = 190;
+// Allow a slightly early entrance once the last count-in click has finished.
+const COUNT_IN_GRACE_MS = 140;
 
 const byId = (id) => document.getElementById(id);
 const text = (id, value) => {
@@ -26,8 +28,6 @@ const state = {
   viewTop: 0, positionRow: null, rowBounds: null, rowWindowShown: false,
   lastTakeSettings: null, renderedResults: null, renderedRevision: null,
 };
-// Detections this long before the count-in downbeat are ignored (the clicks themselves).
-const COUNT_IN_GRACE_MS = 140;
 const notation = byId('notation');
 const preview = byId('preview-notation');
 const barSelect = byId('start-bar');
@@ -187,7 +187,7 @@ function reviewItem(result) {
   const status = result.status === 'correct' && !Number.isFinite(delta) ? 'pitch-only' : result.status;
   const detail = {
     correct: Number.isFinite(result.gradedDelta) && Math.abs(result.gradedDelta - delta) >= 1
-      ? 'Correct pitch within strum allowance' : 'Correct pitch, on time',
+      ? 'Correct pitch within strum allowance' : 'Correct pitch within timing window',
     'pitch-only': 'Correct pitch · timing unscored',
     timing: 'Correct pitch',
     wrong: Number.isFinite(heardMidi) ? `Expected ${midiName(note.midi)}, heard ${midiName(heardMidi)}` : 'Wrong pitch',
@@ -319,7 +319,7 @@ function refreshPracticeControls() {
   const keepGoing = followingSelect.value === 'continuous';
   byId('wait-scoring').hidden = keepGoing;
   text('following-hint', keepGoing
-    ? 'The cursor moves at the reference tempo.'
+    ? 'The cursor holds on the first note until you play, then follows the reference tempo.'
     : 'The cursor waits until you play the expected note or chord.');
   retry.disabled = Boolean(run);
   // In full screen the side panel (with Start listening) is out of view, so this button
@@ -457,17 +457,19 @@ function showResults(take, cancelled) {
   const summary = summarize(take);
   const { bpm } = take;
   const { graded, expected, pitch, rhythm, overall, beatTiming, spacing, unassessable, captureIssue } = summary;
-  const items = cancelled ? [] : summary.results.map(reviewItem);
+  const awaitingFirstNote = bpm && !Number.isFinite(take.downbeat) && !take.inputHealth.issue;
+  const items = cancelled || awaitingFirstNote ? [] : summary.results.map(reviewItem);
   const extraItems = cancelled ? [] : take.extras.map(({ note, midi }) => ({
     note, detail: `Extra pitch · ${midiName(midi)}`, kind: 'extra',
   }));
   const matchedCount = items.filter(({ kind }) => ['correct', 'pitch-only', 'timing'].includes(kind)).length;
   byId('results').hidden = false;
-  text('results-summary', cancelled ? 'Count-in cancelled' : unassessable
-    ? `Unassessable attempt. ${captureIssue ?? 'Check the microphone and try again.'}`
+  text('results-summary', cancelled ? 'Count-in cancelled'
+    : awaitingFirstNote ? 'No note heard. The take did not start.'
+    : unassessable ? `Unassessable attempt. ${captureIssue ?? 'Check the microphone and try again.'}`
     : `${matchedCount} pitches matched · ${graded} assessed · ${expected} expected in passage`);
   const metrics = byId('result-metrics');
-  metrics.hidden = cancelled || unassessable;
+  metrics.hidden = cancelled || unassessable || awaitingFirstNote;
   metrics.classList.toggle('has-overall', Boolean(bpm));
   metrics.replaceChildren();
   function metric(label, value) {
@@ -489,7 +491,7 @@ function showResults(take, cancelled) {
   }
   byId('timing-detail').hidden = metrics.hidden;
   text('timing-detail', bpm
-    ? 'Overall weights pitch at 60% and rhythm at 40%. Rhythm uses beat timing and measured note spacing.'
+    ? `Matched notes within ±${Math.round(timingTolerance(bpm))} ms earn full beat-timing credit. Overall weights pitch at 60% and rhythm at 40%.`
     : 'Free tempo grades pitch only.');
   const count = (kind) => items.filter((item) => item.kind === kind).length;
   const early = items.filter(({ kind, delta }) => kind === 'timing' && delta < 0).length;
@@ -573,7 +575,7 @@ function showResults(take, cancelled) {
     }));
   showComparison(cancelled || unassessable ? null : completedTakeSummary(take, summary));
   retry.onclick = () => restartTake();
-  setupCoach(take, cancelled || unassessable);
+  setupCoach(take, cancelled || unassessable || awaitingFirstNote);
 }
 
 // ---- Practice coach: POST measured numbers (never audio) to /api/drill.
@@ -783,9 +785,11 @@ function goToPage(delta) {
 
 function followClock(now) {
   const { take, clockPosition } = state;
+  const downbeat = visibleDownbeat(take);
+  if (downbeat === null) return false;
   const duration = take.endBeat - take.startBeat;
-  const elapsed = Math.min(duration, Math.max(0, (now - take.downbeat) * take.bpm / 60_000));
-  if (now >= take.downbeat + duration * 60_000 / take.bpm + DETECTION_GRACE_MS) {
+  const elapsed = Math.min(duration, Math.max(0, (now - downbeat) * take.bpm / 60_000));
+  if (Number.isFinite(take.downbeat) && now >= take.downbeat + duration * 60_000 / take.bpm + DETECTION_GRACE_MS) {
     stopListening({ complete: true });
     return true;
   }
@@ -851,10 +855,18 @@ function signalUpdate(pitch, _level, reading) {
   if (take.revision !== revision) refreshVerdicts(take);
   if (state.take !== take || (state.clockPosition && followClock(now))) return;
 
+  const downbeat = visibleDownbeat(take);
+  const waitingForFirst = take.bpm && downbeat === null;
   const waiting = take.following === 'wait' ? take.notes[take.cursor] : null;
-  const quiet = !reading.signal && !take.inputHealth.signalSeen && (!state.countIn || now - state.countIn.downbeat > 500);
-  micLabel(problem ?? (quiet ? 'No measurable input · check microphone setup'
-    : waiting ? `Waiting for ${toneNames(waiting)}` : 'Following the score'), problem || quiet ? 'error-dot' : 'active');
+  const quiet = !reading.signal && !take.inputHealth.signalSeen;
+  const second = take.notes[take.startIndex + 1];
+  const firstGap = state.clockPosition && downbeat !== null && state.index === take.startIndex
+    && take.startIndex + 1 < take.endIndex;
+  micLabel(problem ?? (waitingForFirst ? 'Play your first note to begin'
+    : quiet ? 'No measurable input · check microphone setup'
+    : waiting ? `Waiting for ${toneNames(waiting)}`
+    : firstGap ? `Next: ${toneNames(second)}`
+    : 'Following the score'), problem || (!waitingForFirst && quiet) ? 'error-dot' : 'active');
 }
 
 function receiveNote(attack) {
@@ -959,11 +971,8 @@ async function startListening() {
     const endBeat = endBar === '' ? score.endBeat : score.bars[Number(endBar) + 1]?.beat ?? score.endBeat;
     const countIn = !countInEnabled ? null : bpm ? { bpm, beats: 4 } : FOLLOW_COUNT_IN;
     state.countIn = countIn ? scheduleCountIn(mic.context, countIn.bpm, countIn.beats) : null;
-    // With no count-in, Keep going starts as soon as the microphone is ready.
-    // Scored Wait measures timing from its first correct note.
-    const downbeat = bpm ? state.countIn?.downbeat ?? (following === 'continuous' ? performance.now() : null) : null;
     state.take = {
-      ...createTake(score.notes, state.index, startBeat, bpm, downbeat, endIndex, {
+      ...createTake(score.notes, state.index, startBeat, bpm, null, endIndex, {
         following, endBeat, assessPerformance: true, reorderAttacks: true, groupWindowMs: profile.groupingMs, strumAllowanceMs: profile.strumAllowanceMs,
       }),
       startBar: startBar.index,
@@ -972,8 +981,12 @@ async function startListening() {
     };
     state.lastTakeSettings = restartSettings(state.take);
     if (following === 'continuous') {
-      state.clockPosition = { measure: startBar.index, beatInBar: 1, noteActive: false };
-      followClock(state.take.downbeat);
+      state.clockPosition = {
+        measure: current.measure,
+        beatInBar: Math.floor(current.beat - score.bars[current.measure].beat + 1e-8) + 1,
+        noteActive: true,
+      };
+      passageProgress.value = 0;
     }
     byId('count').hidden = !state.countIn;
     showCountdown(countdownNumber(state.countIn, performance.now()));

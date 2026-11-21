@@ -121,13 +121,13 @@
                 <option value="continuous">Keep going</option>
                 <option value="wait">Wait for the right note</option>
               </select>
-              <p class="field-hint" id="following-hint">The cursor moves at the reference tempo.</p>
+              <p class="field-hint" id="following-hint">The cursor holds on the first note until you play, then follows the reference tempo.</p>
             </div>
             <div class="field" id="wait-scoring" hidden>
               <label for="practice-mode">Timing in wait mode</label>
               <select id="practice-mode"><option value="timed">Scored tempo</option><option value="free">Free tempo</option></select>
             </div>
-            <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Clicks and a countdown before listening starts</small></label>
+            <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Optional clicks before the app checks your first note</small></label>
             <div class="playback-fields">
               <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
               <div class="field">
@@ -241,7 +241,7 @@
     <ol class="help-steps">
       <li><strong>Open a score.</strong> Use Morning Lines or upload a melody or chordal MusicXML score.</li>
       <li><strong>Hear a passage.</strong> Choose the bars, reference tempo, and playback instrument. Select Hear this passage to follow the highlighted notes.</li>
-      <li><strong>Play it yourself.</strong> Keep going follows the reference tempo and grades the passage at the end. Choose Wait for the right note to advance only when you play the expected pitch.</li>
+      <li><strong>Play it yourself.</strong> Keep going checks your first attack against the first written note, then follows the reference tempo. Choose Wait for the right note to advance only when you play the expected pitch.</li>
       <li><strong>Review your take.</strong> Select a mistake to see it on the score and practise those bars again. Finish two takes of the same passage at the same tempo to compare them.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>

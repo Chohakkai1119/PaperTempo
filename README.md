@@ -27,13 +27,13 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 1. Open the included **Morning Lines** score.
 2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The score window shows the selected passage.
 3. Set the **Reference tempo**, choose a **Playback instrument**, then select **Hear this passage**. Playback uses instrument recordings bundled with PaperTempo, and the score window follows the highlighted notes. Use **Pause playback** to resume from the same spot or **Stop playback** to try another instrument before playing again.
-4. Choose your **Instrument being played**, leave **Score following** on **Keep going**, and select **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
+4. Choose your **Instrument being played**, leave **Score following** on **Keep going**, and select **Start listening**. After the optional four-beat count-in, start whenever you are ready. Play E4, then play C4 two beats later, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
 5. Select the missed D4 to see it marked on the score. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** compares completed takes of the same passage at the same tempo and in the same following mode.
 6. To drill pitches at your own pace, choose **Wait for the right note**. The cursor advances when you play the expected pitch or chord. Choose **Scored tempo** to rate timing against the reference tempo or **Free tempo** for pitch feedback.
 
-Use **Count-in** to turn the clicks and countdown on or off. With it off, **Keep going** starts immediately and timed **Wait for the right note** anchors to the first correct note. **Restart** reuses your take settings.
+Use **Count-in** to turn the clicks and countdown on or off. In timed practice, the first detected attack after you are ready is checked against the first written note and sets the timing reference, even if the pitch is wrong. In **Keep going**, the gap to the second note starts at that attack and the live status shows the next pitch. **Restart** reuses your take settings.
 
-The overall grade weights pitch accuracy at 60% and rhythm at 40%. Rhythm uses beat timing and the spacing between neighbouring notes you matched. Beat timing measures each onset against the count-in. Note spacing compares the played time between attacks with the score, including written rests. Missed notes and extra pitches reduce the grade.
+The overall grade weights pitch accuracy at 60% and rhythm at 40%. Rhythm uses beat timing and the spacing between neighbouring notes you matched. Beat timing measures each onset against the reference tempo starting at your first detected attack. At 120 BPM, correctly assigned notes within 200 ms of the beat earn full beat-timing credit. Wider deviations lose credit gradually. Closely spaced notes still use distinct assignment windows. Note spacing compares the played time between attacks with the score, including written rests. Missed notes and extra pitches reduce the grade.
 
 The bundled [instrument recording credits](dist/assets/instruments/CREDITS.txt) list the source and license for each sample.
 

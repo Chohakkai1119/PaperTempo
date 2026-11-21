@@ -112,8 +112,8 @@ function installStream({ forceFallback }) {
 function xmlFor(notes) {
   return `<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
     <part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time>
-    <clef><sign>G</sign><line>2</line></clef></attributes>${notes.map(([step, chord]) =>
-      `<note>${chord ? '<chord/>' : ''}<pitch><step>${step}</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>`).join('')}
+    <clef><sign>G</sign><line>2</line></clef></attributes>${notes.map(([step, chord, duration = 1]) =>
+      `<note>${chord ? '<chord/>' : ''}<pitch><step>${step}</step><octave>4</octave></pitch><duration>${duration}</duration><type>${duration === 2 ? 'half' : 'quarter'}</type></note>`).join('')}
     </measure></part></score-partwise>`;
 }
 
@@ -187,39 +187,51 @@ async function checkStream(browserType, { forceFallback = false, full = false } 
     assert.equal(await page.locator('[data-verdict="missed"]').count(), 1);
     assert.match(await page.locator('#result-counts').textContent(), /1 extra/);
 
-    await upload(page, [['C', false], ['D', false], ['E', false], ['G', false]]);
+    await upload(page, [['C', false], ['D', false, 2], ['E', false], ['G', false]]);
     await page.locator('#following-mode').selectOption('continuous');
     await page.locator('#bpm').fill('120');
+    await page.locator('#count-in').check();
     await page.locator('#listen').click();
     await page.locator('#listen').getByText(/Stop listening/).waitFor();
+    // A note during the count-in must not start assessment.
+    await page.evaluate(() => window.testInput.tone([440], { duration: 0.18 }));
+    await page.locator('#mic-status').getByText('Play your first note to begin').waitFor();
+    // Wait longer than the scored passage before starting.
+    await page.waitForTimeout(2800);
+    assert.equal(await page.locator('#passage-progress').getAttribute('value'), '0');
+    assert.equal(await page.locator('#expected-note').textContent(), 'C4');
+    assert.equal(await page.locator('#results').isVisible(), false);
     await page.evaluate(() => {
-      window.testInput.tone([261.625565], { duration: 0.18 });
-      window.testInput.tone([293.664768], { duration: 0.18, delay: 0.65 });
-      window.testInput.tone([440], { duration: 0.18, delay: 1.02 });
+      window.testInput.tone([293.664768], { duration: 0.18 });
+      window.testInput.tone([293.664768], { duration: 0.18, delay: 0.82 });
+      window.testInput.tone([329.627556], { duration: 0.18, delay: 1.52 });
     });
+    await page.locator('#mic-status').getByText('Next: D4', { exact: true }).waitFor();
     await page.locator('#results-summary').getByText(/2 pitches matched/).waitFor();
     for (const verdict of ['correct', 'timing', 'wrong', 'missed']) {
       assert.equal(await page.locator(`[data-verdict="${verdict}"]`).count(), 1);
     }
-    await page.locator('#result-list button').getByText(/Expected E4, heard A4/).click();
-    await page.locator('#score-review-detail').getByText(/Expected E4, heard A4/).waitFor();
+    await page.locator('#result-list button').getByText(/Expected C4, heard D4/).click();
+    await page.locator('#score-review-detail').getByText(/Expected C4, heard D4/).waitFor();
 
     await page.locator('#retry').click();
-    await page.locator('#listen').getByText(/Stop listening/).waitFor();
+    await page.locator('#mic-status').getByText('Play your first note to begin').waitFor();
     await page.evaluate(() => {
       [261.625565, 293.664768, 329.6276, 391.9954].forEach((frequency, index) =>
-        window.testInput.tone([frequency], { duration: 0.18, delay: 0.02 + index * 0.5 }));
+        window.testInput.tone([frequency], { duration: 0.18, delay: [0.02, 0.69, 1.52, 2.02][index] }));
     });
     await page.locator('#results-summary').getByText(/4 pitches matched/).waitFor();
     await page.locator('#comparison-table').waitFor();
     assert.equal(await page.locator('[data-verdict="correct"]').count(), 4);
+    const overall = page.locator('#result-metrics').getByText('Overall accuracy', { exact: true }).locator('..');
+    assert.equal(await overall.locator('strong').textContent(), '100%');
 
     await page.locator('#retry').click();
     await page.locator('#listen').getByText(/Stop listening/).waitFor();
     await page.evaluate(() => window.testInput.disconnect());
     await page.locator('#results-summary').getByText(/Unassessable attempt.*disconnected/).waitFor();
     assert.equal(await page.locator('#result-metrics').isVisible(), false);
-    console.log(`${browserType.name()} ${browser.version()}: capture, good/wrong triad, all scored colours, review, take comparison and disconnect passed; triad → displayed verdict ${chordFeedbackMs} ms`);
+    console.log(`${browserType.name()} ${browser.version()}: capture, good/wrong triad, wrong opening note after waiting, all scored colours, review, take comparison and disconnect passed; triad → displayed verdict ${chordFeedbackMs} ms`);
   } catch (error) {
     console.error(await page.locator('#capture-message, #capture-engine, #capture-levels, #capture-pitches, #mic-status, #results-summary, #result-list, #upload-error')
       .allTextContents(), errors);

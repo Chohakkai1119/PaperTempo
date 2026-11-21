@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   acceptNote, acceptPerformance, advancePerformance, completedTakeSummary, createTake, finalizeContinuousTake,
-  MIN_TIMED_MATCHES, samePracticePassage, summarize, timingTolerance, updateInputHealth,
+  MIN_TIMED_MATCHES, samePracticePassage, summarize, timingTolerance, updateInputHealth, visibleDownbeat,
 } from '../dist/practice.mjs';
 import { sampleNotes, midi } from './helpers.mjs';
 
@@ -58,11 +58,11 @@ test('scored tempo: a late note and a wrong pitch show up at their bars', () => 
   const downbeat = 10000;
   const take = createTake(notes, i, notes[i].beat, bpm, downbeat);
   // Bar 9: E4 D4 C4(half) | Bar 10: G4 A4 G4 E4
-  const plays = [['E4', 0, 0], ['D4', 1, 0], ['C4', 2, 260], ['G4', 4, 0], ['F#4', 5, 0], ['A4', 5, 20], ['G4', 6, 0], ['E4', 7, -40]];
+  const plays = [['E4', 0, 0], ['D4', 1, 0], ['C4', 2, 320], ['G4', 4, 0], ['F#4', 5, 0], ['A4', 5, 20], ['G4', 6, 0], ['E4', 7, -40]];
   for (const [n, beat, off] of plays) acceptNote(take, midi(n), downbeat + beat * beatMs + off);
   const late = take.matched.find((m) => m.delta > timingTolerance(bpm));
   assert.equal(late.note.bar, '9');
-  assert.equal(Math.round(late.delta), 260);
+  assert.equal(Math.round(late.delta), 320);
   assert.equal(take.extras.length, 1);
   assert.equal(take.extras[0].midi, midi('F#4'));
   assert.equal(take.extras[0].note.bar, '10');
@@ -100,32 +100,38 @@ test('free tempo has pitch only', () => {
 });
 
 test('timing window scales with tempo and clamps at both ends', () => {
-  assert.equal(timingTolerance(60), 140);
-  assert.equal(timingTolerance(100), 120);
-  assert.equal(timingTolerance(120), 100);
-  assert.equal(timingTolerance(180), 70);
+  assert.equal(timingTolerance(60), 280);
+  assert.equal(timingTolerance(100), 240);
+  assert.equal(timingTolerance(120), 200);
+  assert.equal(Math.round(timingTolerance(180)), 133);
+  assert.equal(timingTolerance(240), 120);
   const takeSummary = (bpm) => {
     const take = createTake(notes, 0, 0, bpm, 0, 3);
     for (const note of notes.slice(0, 3)) {
-      acceptNote(take, note.midi, note.beat * 60_000 / bpm + 120);
+      acceptNote(take, note.midi, note.beat * 60_000 / bpm + 200);
     }
     return summarize(take);
   };
   assert.equal(takeSummary(60).timing, 100);
-  assert.equal(takeSummary(60).rhythm, 57);
+  assert.equal(takeSummary(60).rhythm, 100);
   assert.equal(takeSummary(180).timing, 0);
-  assert.equal(takeSummary(180).rhythm, 14);
+  assert.equal(takeSummary(180).rhythm, 75);
 });
 
-test('identical pitches lose rhythm credit with onset error, down to zero for a very late note', () => {
-  const take = createTake(notes, 0, 0, 120, 1000, 3);
-  for (const [index, offset] of [[0, 0], [1, -100], [2, 300]]) {
-    const note = notes[index];
-    acceptNote(take, note.midi, 1000 + note.beat * 500 + offset);
+test('a correct pitch gets full credit within the timing window, then gradually loses credit', () => {
+  function gradeLastOffset(lastOffset) {
+    const take = createTake(notes, 0, 0, 120, 1000, 3);
+    for (const [index, offset] of [[0, 0], [1, -180], [2, lastOffset]]) {
+      const note = notes[index];
+      acceptNote(take, note.midi, 1000 + note.beat * 500 + offset);
+    }
+    return summarize(take);
   }
-  assert.deepEqual(summarize(take), {
-    attempted: 3, pitch: 100, timing: 67, rhythm: 50, overall: 80, enoughTiming: true,
-  });
+  for (const [offset, rhythm, overall] of [[200, 100, 100], [300, 92, 97], [800, 67, 87]]) {
+    assert.deepEqual(gradeLastOffset(offset), {
+      attempted: 3, pitch: 100, timing: offset <= 200 ? 100 : 67, rhythm, overall, enoughTiming: true,
+    });
+  }
 });
 
 test('a missed note counts in both scores and the completed take retains the new metrics', () => {
@@ -141,10 +147,10 @@ test('a missed note counts in both scores and the completed take retains the new
     acceptNote(take, note.midi, 1000 + (note.beat - take.startBeat) * 500 + offset);
   }
   const summary = summarize(take);
-  assert.deepEqual(summary, { attempted: 7, pitch: 86, timing: 100, rhythm: 79, overall: 83, enoughTiming: true });
+  assert.deepEqual(summary, { attempted: 7, pitch: 86, timing: 100, rhythm: 86, overall: 86, enoughTiming: true });
   const completed = completedTakeSummary(take, summary);
-  assert.equal(completed.rhythm, 79);
-  assert.equal(completed.overall, 83);
+  assert.equal(completed.rhythm, 86);
+  assert.equal(completed.overall, 86);
   assert.equal(completed.missed, 1);
 });
 
@@ -152,7 +158,7 @@ test('overall accuracy weights the underlying scores before rounding', () => {
   const melody = Array.from({ length: 6 }, (_, index) => ({ midi: 60 + index, beat: index }));
   const take = createTake(melody, 0, 0, 120, 1000);
   for (const index of [0, 2, 4, 5]) {
-    acceptNote(take, melody[index].midi, 1000 + index * 500 + (index === 5 ? 36 : 0));
+    acceptNote(take, melody[index].midi, 1000 + index * 500 + (index === 5 ? 275 : 0));
   }
   const { pitch, rhythm, overall } = summarize(take);
   assert.deepEqual({ pitch, rhythm, overall }, { pitch: 67, rhythm: 64, overall: 65 });
@@ -204,17 +210,17 @@ test('keep going assigns a repeated pitch to the closest written onset', () => {
 test('constant lateness affects beat timing while preserving the written note spacing', () => {
   const melody = [{ midi: 60, beat: 0 }, { midi: 67, beat: 2 }];
   const take = createTake(melody, 0, 0, 120, 1000, 2, { following: 'continuous', endBeat: 3 });
-  acceptNote(take, 60, 1150);
-  acceptNote(take, 67, 2150);
+  acceptNote(take, 60, 1300);
+  acceptNote(take, 67, 2300);
   finalizeContinuousTake(take, 2500, true);
   const summary = summarize(take);
   assert.deepEqual(summary.intervals, [{
-    previous: melody[0], note: melody[1], expectedMs: 1000, deltaMs: 0, toleranceMs: 140,
+    previous: melody[0], note: melody[1], expectedMs: 1000, deltaMs: 0, toleranceMs: 280,
   }]);
-  assert.equal(summary.beatTiming, 25);
+  assert.equal(summary.beatTiming, 75);
   assert.equal(summary.spacing, 100);
-  assert.equal(summary.rhythm, 63);
-  assert.equal(summary.overall, 85);
+  assert.equal(summary.rhythm, 88);
+  assert.equal(summary.overall, 95);
 });
 
 test('spacing compares written onsets including rests and uses a tighter window for shorter gaps', () => {
@@ -222,13 +228,13 @@ test('spacing compares written onsets including rests and uses a tighter window 
   const take = createTake(melody, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 3 });
   acceptNote(take, 60, 1150);
   acceptNote(take, 67, 1900);
-  acceptNote(take, 69, 2250);
+  acceptNote(take, 69, 2290);
   finalizeContinuousTake(take, 2500, true);
   const summary = summarize(take);
   assert.deepEqual(summary.intervals.map(({ expectedMs, deltaMs, toleranceMs }) => (
     [expectedMs, deltaMs, toleranceMs]
-  )), [[1000, -250, 140], [250, 100, 50]]);
-  assert.equal(summary.spacing, 5);
+  )), [[1000, -250, 280], [250, 140, 100]]);
+  assert.equal(summary.spacing, 90);
 });
 
 test('a stopped continuous take grades elapsed attempts while silence through the end grades the whole passage', () => {
@@ -277,6 +283,82 @@ function perform(take, at, ...midis) {
   return acceptPerformance(take, { onsetMs: at, pitches: midis.map((midi) => ({ midi })) });
 }
 
+test('the first heard pitch grades the opening note after leading rests, even when it matches the next note', () => {
+  const notes = [event(2, [60]), event(3, [62])];
+  const take = createTake(notes, 0, 0, 120, null, 2, {
+    following: 'continuous', endBeat: 4, reorderAttacks: true,
+  });
+  updateInputHealth(take, 4900, { signal: true, uncertain: true });
+  advancePerformance(take, 4990);
+  assert.equal(take.downbeat, null);
+  assert.equal(take.cursor, 0);
+  assert.equal(summarize(take).attempted, 0);
+  // Deliver the next note first, as can happen with different analysis delays.
+  perform(take, 5500, 62);
+  perform(take, 5000, 62);
+  advancePerformance(take, 5600);
+  assert.equal(take.downbeat, 4000);
+  assert.deepEqual(summarize(take).results.map(({ status, heardMidi, delta }) => [status, heardMidi, delta]), [
+    ['wrong', 62, undefined], ['correct', 62, 0],
+  ]);
+});
+
+test('the opening attack starts the next gap while judgments still wait for timestamp order', () => {
+  const notes = [event(0, [60]), event(1, [62])];
+  for (const openingPitch of [60, 62]) {
+    const take = createTake(notes, 0, 0, 120, null, 2, {
+      following: 'continuous', endBeat: 2, reorderAttacks: true,
+    });
+    perform(take, 1000, openingPitch);
+    assert.equal(visibleDownbeat(take), 1000);
+    assert.equal(take.downbeat, null);
+    perform(take, 1220, 62);
+    advancePerformance(take, 1230);
+    const [first, second] = summarize(take).results;
+    assert.equal(first.status, openingPitch === 60 ? 'correct' : 'wrong');
+    assert.equal(second.status, 'timing');
+    assert.equal(second.delta, -280);
+  }
+});
+
+test('the opening gap allowance does not promote a wrong pitch or a same-pitch reattack', () => {
+  for (const secondPitch of [60, 62]) {
+    const notes = [event(0, [60]), event(1, [secondPitch])];
+    const take = createTake(notes, 0, 0, 120, null, 2, { following: 'continuous', endBeat: 2 });
+    assert.equal(perform(take, 1000, 60).type, 'matched');
+    assert.equal(perform(take, 1220, 60).type, 'extra');
+    assert.equal(perform(take, 1500, secondPitch).delta, 0);
+  }
+});
+
+test('stopping before an accepted opening pitch leaves all notes unattempted', () => {
+  const notes = [event(0, [60])];
+  const take = createTake(notes, 0, 0, 120, null, 1, {
+    following: 'continuous', endBeat: 1, reorderAttacks: true,
+  });
+  updateInputHealth(take, 5000, { signal: true });
+  acceptPerformance(take, { onsetMs: 6000, pitches: [{ midi: 60, ambiguous: true }] });
+  advancePerformance(take, 9000, { finish: true });
+  assert.equal(take.downbeat, null);
+  assert.equal(take.cursor, 0);
+  assert.equal(summarize(take).results[0].status, 'unattempted');
+});
+
+test('scored wait starts on a wrong attack and still waits for the expected first pitch', () => {
+  const notes = [event(0, [60]), event(1, [62])];
+  const take = createTake(notes, 0, 0, 120, null, 2, { following: 'wait', reorderAttacks: true });
+  perform(take, 6000, 62);
+  advancePerformance(take, 6100);
+  assert.equal(take.downbeat, 6000);
+  assert.equal(take.cursor, 0);
+  assert.equal(summarize(take).results[0].status, 'wrong');
+  perform(take, 6200, 60);
+  advancePerformance(take, 6300);
+  assert.equal(take.downbeat, 6000);
+  assert.equal(take.cursor, 1);
+  assert.equal(summarize(take).results[0].delta, 200);
+});
+
 test('incorrect three-tone chord credits two written heads, marks the missing tone and reports the extra', () => {
   const notes = [event(0, [60, 64, 67])];
   const take = createTake(notes, 0, 0, 120, 1000, 1, { following: 'continuous', endBeat: 1 });
@@ -323,7 +405,7 @@ test('fast adjacent written onset limits chord grouping and preserves its own at
 test('late pitch stays yellow, wrong pitch becomes red at slot close and repeated heads grade independently', () => {
   const notes = [event(0, [60]), event(1, [60]), event(2, [67], 1)];
   const take = createTake(notes, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 3 });
-  perform(take, 1150, 60);
+  perform(take, 1220, 60);
   perform(take, 1500, 60);
   perform(take, 2000, 69);
   assert.equal(take.results.has('2-67'), false);
@@ -335,7 +417,7 @@ test('late pitch stays yellow, wrong pitch becomes red at slot close and repeate
   assert.equal(summary.late, 1);
   assert.equal(summary.wrong, 1);
   assert.equal(summary.missed, 0);
-  assert.equal(summary.largestTimingErrors[0].delta, 150);
+  assert.equal(summary.largestTimingErrors[0].delta, 220);
   assert.ok(summary.rhythm < 100);
   assert.equal(summary.bars[1].mistakes, 2);
 });

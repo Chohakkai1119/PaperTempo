@@ -1,15 +1,24 @@
 export const MIN_TIMED_MATCHES = 3;
 const MAX_QUEUED_ATTACKS = 128;
 
+function timingWindow(durationMs, minimumMs) {
+  return Math.min(280, Math.max(minimumMs, 0.4 * durationMs));
+}
+
 export function timingTolerance(bpm) {
-  return Math.min(140, Math.max(70, 0.2 * 60_000 / bpm));
+  return timingWindow(60_000 / bpm, 120);
+}
+
+function rhythmCredit(offsetMs, toleranceMs) {
+  const excessMs = Math.max(0, Math.abs(offsetMs) - toleranceMs);
+  return Math.max(0, 1 - excessMs / (2 * toleranceMs));
 }
 
 export function createTake(notes, startIndex, startBeat, bpm, downbeat, endIndex = notes.length, {
   following, endBeat, groupWindowMs = 65, strumAllowanceMs = 0, assessPerformance = false, reorderAttacks = false,
 } = {}) {
   return {
-    notes, startIndex, endIndex, startBeat, bpm, downbeat, following, endBeat, cursor: startIndex,
+    notes, startIndex, endIndex, startBeat, bpm, downbeat, openingAt: null, following, endBeat, cursor: startIndex,
     finished: false, closed: false,
     earlier: null, matched: [], missed: [], extras: [],
     assessPerformance, groupWindowMs, strumAllowanceMs,
@@ -22,6 +31,21 @@ export function createTake(notes, startIndex, startBeat, bpm, downbeat, endIndex
 
 function onsetTime(take, note) {
   return take.downbeat + (note.beat - take.startBeat) * 60_000 / take.bpm;
+}
+
+function downbeatFromOpening(take, at) {
+  return at - (take.notes[take.startIndex].beat - take.startBeat) * 60_000 / take.bpm;
+}
+
+/** Let the visual clock start from received audio while grading waits for timestamp order. */
+export function visibleDownbeat(take) {
+  if (Number.isFinite(take.downbeat)) return take.downbeat;
+  return Number.isFinite(take.openingAt) ? downbeatFromOpening(take, take.openingAt) : null;
+}
+
+function anchorFirstAttack(take, at) {
+  if (!take.bpm || Number.isFinite(take.downbeat)) return;
+  take.downbeat = downbeatFromOpening(take, at);
 }
 
 function slotRadius(take, index, direction) {
@@ -40,7 +64,7 @@ function continuousEndTime(take) {
 
 export function finalizeContinuousTake(take, at, complete) {
   if (take.assessPerformance) return advancePerformance(take, at, { complete, finish: true });
-  if (take.following !== 'continuous') return;
+  if (take.following !== 'continuous' || !Number.isFinite(take.downbeat)) return;
   const passageEnd = continuousEndTime(take);
   while (take.cursor < take.endIndex) {
     const note = take.notes[take.cursor];
@@ -60,8 +84,9 @@ function recordExtra(take, note, midi, at, index) {
 }
 
 function acceptContinuous(take, midi, at) {
-  if (take.finished || take.startIndex >= take.endIndex || !Number.isFinite(at)
-    || at < take.downbeat - 140 || !(at < continuousEndTime(take))) return { type: 'ignored' };
+  if (take.finished || take.startIndex >= take.endIndex || !Number.isFinite(at)) return { type: 'ignored' };
+  anchorFirstAttack(take, at);
+  if (at < take.downbeat - 140 || !(at < continuousEndTime(take))) return { type: 'ignored' };
   finalizeContinuousTake(take, at, false);
 
   const { notes, cursor, endIndex, startIndex } = take;
@@ -96,7 +121,8 @@ export function acceptNote(take, midi, at) {
   }
   if (take.following === 'continuous') return acceptContinuous(take, midi, at);
   const { notes, cursor, endIndex } = take;
-  if (cursor >= endIndex || (take.bpm && at < take.downbeat - 140)) return { type: 'ignored' };
+  if (cursor >= endIndex || !Number.isFinite(at) || (take.bpm && at < take.downbeat - 140)) return { type: 'ignored' };
+  anchorFirstAttack(take, at);
   const expected = notes[cursor];
   let matchIndex = midi === expected.midi ? cursor : -1;
   if (matchIndex < 0 && take.following !== 'wait') {
@@ -118,10 +144,6 @@ function recordMatch(take, matchIndex, at) {
   const { notes, cursor } = take;
   const note = notes[matchIndex];
   if (matchIndex > cursor) take.missed.push(...notes.slice(cursor, matchIndex));
-  // Scored tempo without a count-in: the first matched note sets the downbeat.
-  if (take.bpm && !Number.isFinite(take.downbeat)) {
-    take.downbeat = at - (note.beat - take.startBeat) * 60_000 / take.bpm;
-  }
   const delta = take.bpm ? at - onsetTime(take, note) : null;
   const match = { note, at, delta };
   if (take.following) match.index = matchIndex;
@@ -158,7 +180,7 @@ export function updateInputHealth(take, at, { available = true, signal = false, 
   health.observed = true;
   if (!available) health.issue ??= issue || 'The selected microphone became unavailable.';
   if (available && signal) health.signalSeen = true;
-  if (!uncertain || !available || !signal) return;
+  if (!uncertain || !available || !signal || (take.bpm && !Number.isFinite(take.downbeat))) return;
   let index = take.cursor;
   if (take.following === 'continuous') {
     while (index < take.endIndex && at >= slotDeadline(take, index)) index += 1;
@@ -214,9 +236,6 @@ function commitGroup(take, index, heardPitches, { advance = true } = {}) {
   const accepted = tones.map(({ midi }) => heardPitches.get(midi));
   const onsets = accepted.filter(Boolean).map(({ at }) => at);
   const at = onsets.length ? Math.min(...onsets) : null;
-  if (at !== null && take.bpm && !Number.isFinite(take.downbeat)) {
-    take.downbeat = at - (group.beat - take.startBeat) * 60_000 / take.bpm;
-  }
   const target = take.bpm && Number.isFinite(take.downbeat) ? onsetTime(take, group) : null;
   const tolerance = target === null ? null : timingTolerance(take.bpm);
   const missing = unmatchedStatus(take, index, tones, heardPitches.size);
@@ -264,7 +283,7 @@ function closeChord(take) {
 
 function advanceSlots(take, at, complete = false) {
   if (take.chord && (complete || at >= take.chord.deadline)) closeChord(take);
-  if (take.following !== 'continuous') return;
+  if (take.following !== 'continuous' || !Number.isFinite(take.downbeat)) return;
   while (take.cursor < take.endIndex && (complete || at >= slotDeadline(take, take.cursor))) {
     commitGroup(take, take.cursor, new Map());
   }
@@ -322,14 +341,19 @@ export function acceptPerformance(take, event) {
     .filter(({ midi, ambiguous }) => Number.isInteger(midi) && midi >= 0 && midi <= 127 && !ambiguous)
     .map((pitch) => ({ ...pitch, at: pitch.onsetMs ?? pitch.at ?? at }))
     .filter((pitch) => Number.isFinite(pitch.at));
-  if (!pitches.length || take.finished || take.closed || !Number.isFinite(at)
-    || (take.bpm && Number.isFinite(take.downbeat) && at < take.downbeat - 140)
-    || (take.following === 'continuous' && !(at < continuousEndTime(take)))) return { type: 'ignored' };
+  if (!pitches.length || take.finished || take.closed || take.startIndex >= take.endIndex
+    || !Number.isFinite(at) || (Number.isFinite(take.downbeat) && (
+      (take.bpm && at < take.downbeat - 140)
+      || (take.following === 'continuous' && at >= continuousEndTime(take))
+    ))) return { type: 'ignored' };
   take.inputHealth.signalSeen = true;
   if (take.reorderAttacks) {
     if (at <= take.watermark || take.attackQueue.length >= MAX_QUEUED_ATTACKS) {
       take.inputHealth.issue ??= 'Microphone audio arrived too late to assess reliably.';
       return { type: 'ignored' };
+    }
+    if (take.bpm && !Number.isFinite(take.downbeat)) {
+      take.openingAt = Math.min(take.openingAt ?? Infinity, at);
     }
     take.attackQueue.push({ at, pitches });
     return { type: 'pending' };
@@ -337,7 +361,25 @@ export function acceptPerformance(take, event) {
   return acceptOrderedAttack(take, at, pitches);
 }
 
+function canAcceptEarlySecond(take, at, heard) {
+  const secondIndex = take.startIndex + 1;
+  if (secondIndex >= take.endIndex || take.cursor > secondIndex
+    || (take.cursor < secondIndex && !take.wrongBySlot.has(take.startIndex))) return false;
+  const firstTones = tonesOf(take.notes[take.startIndex]);
+  if (firstTones.length !== 1) return false;
+  const second = take.notes[secondIndex];
+  const gap = onsetTime(take, second) - onsetTime(take, take.notes[take.startIndex]);
+  const opens = onsetTime(take, second) - slotRadius(take, secondIndex, -1);
+  const grace = Math.min(45, gap * 0.15);
+  return at < opens && at >= opens - grace
+    && tonesOf(second).some(({ midi }) => midi !== firstTones[0].midi && heard.has(midi));
+}
+
 function acceptOrderedAttack(take, at, pitches) {
+  // Anchor only after chronological delivery. The first pitch is evidence
+  // for the opening slot even when it is a different written pitch.
+  anchorFirstAttack(take, at);
+  if (take.following === 'continuous' && at >= continuousEndTime(take)) return { type: 'ignored' };
   const heard = new Map(pitches.map((pitch) => [pitch.midi, pitch]));
   advanceSlots(take, at);
   if (take.chord) {
@@ -347,8 +389,12 @@ function acceptOrderedAttack(take, at, pitches) {
     return { type: 'pending', note: take.notes[take.chord.index], index: take.chord.index };
   }
 
+  const earlySecond = take.following === 'continuous' && canAcceptEarlySecond(take, at, heard);
+  if (earlySecond && take.cursor === take.startIndex) {
+    commitGroup(take, take.cursor, new Map());
+  }
   const { notes, cursor, endIndex, following } = take;
-  if (following === 'continuous' && !inSlot(take, cursor, at)) {
+  if (following === 'continuous' && !earlySecond && !inSlot(take, cursor, at)) {
     const note = closestSlot(take, at);
     if (!note) return { type: 'ignored' };
     performanceExtras(take, note, undefined, heard.values());
@@ -395,7 +441,7 @@ function matchedIntervals(matched, bpm) {
     const expectedMs = (current.note.beat - previous.note.beat) * 60_000 / bpm;
     if (expectedMs <= 0) continue;
     const deltaMs = current.at - previous.at - expectedMs;
-    const toleranceMs = Math.min(140, Math.max(40, expectedMs * 0.2));
+    const toleranceMs = Math.min(expectedMs / 2, timingWindow(expectedMs, 80));
     intervals.push({ previous: previous.note, note: current.note, expectedMs, deltaMs, toleranceMs });
   }
   return intervals;
@@ -430,7 +476,7 @@ function addTimingGrades(summary, { matched, groupMatches = matched, bpm, follow
   for (const { delta, gradedDelta } of matched) {
     const distance = Math.abs(gradedDelta ?? delta);
     if (distance <= tolerance) onTime += 1;
-    timingCredit += Math.max(0, 1 - distance / (2 * tolerance));
+    timingCredit += rhythmCredit(distance, tolerance);
   }
   // Missed notes earn no timing credit and still count in the attempted passage.
   const beatRatio = timingCredit / graded;
@@ -438,7 +484,7 @@ function addTimingGrades(summary, { matched, groupMatches = matched, bpm, follow
   if (following) {
     const intervals = matchedIntervals(groupMatches, bpm);
     const spacingRatio = intervals.length
-      ? intervals.reduce((sum, { deltaMs, toleranceMs }) => sum + Math.max(0, 1 - Math.abs(deltaMs) / (2 * toleranceMs)), 0) / intervals.length
+      ? intervals.reduce((sum, { deltaMs, toleranceMs }) => sum + rhythmCredit(deltaMs, toleranceMs), 0) / intervals.length
       : null;
     if (spacingRatio !== null) rhythmRatio = (beatRatio + spacingRatio) / 2;
     Object.assign(summary, {
