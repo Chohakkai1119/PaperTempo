@@ -26,8 +26,11 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 
 1. Open the included **Morning Lines** score.
 2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The preview shows the first system on page two.
-3. Select **Start listening**. Play E4, D4, and C4, then pause. Play G4 when ready to confirm the first note of page two and turn the page.
-4. Finish bar 10 to review the take, then select **Practise again** to replay those two bars. For timing feedback, choose **Scored tempo** before the take, follow the four-beat count-in, and play at least three expected notes. The timing tolerance is ±120 ms.
+3. Set the **Reference tempo** and choose **Hear this passage**. Playback follows the single-note practice line and turns the page. Use **Pause playback** to resume from the same spot or **Stop playback** to return to practice.
+4. Select **Scored tempo** and **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Play G4 on the first beat of bar 10 to turn the page, then finish the bar.
+5. Select the missed D4 to see it marked on page one. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** shows the results from both completed takes at the same tempo.
+
+Scored tempo combines 60% pitch accuracy with 40% rhythm. Rhythm credit decreases with onset error and missed notes earn no credit. The timing window scales with tempo from 70 to 140 ms, and rhythm and overall accuracy require at least three matched notes.
 
 The **How it works** panel links to the matching two-page A4 PDF and MusicXML files.
 
