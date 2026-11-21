@@ -1,4 +1,4 @@
-import { clearMarks, engrave, markNote, markResult, midiName, musicXMLFromFile, notationElement } from './score.mjs';
+import { clearMarks, engrave, markNote, markResult, midiName, musicXMLFromFile, notationElement, shiftMusicXMLOctaves } from './score.mjs';
 import { FOLLOW_COUNT_IN, countdownNumber, openMicrophone, scheduleCountIn } from './audio.mjs';
 import { INPUT_PROFILES, resolveInputProfile } from './input-profiles.mjs';
 import { captureProblem, createMicrophoneDiagnostics } from './microphone-diagnostics.mjs';
@@ -27,6 +27,7 @@ const state = {
   review: null, completedTakes: [], playbackRun: null, clockPosition: null,
   viewTop: 0, positionRow: null, rowBounds: null, rowWindowShown: false,
   lastTakeSettings: null, renderedResults: null, renderedRevision: null,
+  sourceXML: null, sourcePDF: null, convertedXML: null, octaveShift: 0,
 };
 const notation = byId('notation');
 const preview = byId('preview-notation');
@@ -54,8 +55,11 @@ const scorePanel = document.querySelector('.score-panel');
 const fullscreenButton = byId('fullscreen-toggle');
 const practiseMistake = byId('practise-mistake');
 const scoreFile = byId('score-file');
+const pdfConverterFrame = byId('pdf2music-frame');
 const uploadDialog = byId('upload-dialog');
 const uploadError = byId('upload-error');
+let pdfConversionActive = false;
+let pdfConversionSequence = 0;
 const dropzone = byId('dropzone');
 const playback = createPlayback({
   onNote(note) {
@@ -75,6 +79,34 @@ const playback = createPlayback({
 
 function barLabel(index) {
   return 'Bar ' + state.score.bars[index].label;
+}
+
+function updateOctaveControls() {
+  const label = byId('octave-shift-label');
+  if (!label) return;
+  label.textContent = `Octave ${state.octaveShift > 0 ? '+' : ''}${state.octaveShift}`;
+  byId('octave-down').disabled = !state.sourceXML || state.opening || Boolean(state.mic || state.playbackRun) || state.octaveShift <= -3;
+  byId('octave-up').disabled = !state.sourceXML || state.opening || Boolean(state.mic || state.playbackRun) || state.octaveShift >= 3;
+  byId('octave-reset').disabled = !state.sourceXML || state.opening || Boolean(state.mic || state.playbackRun) || state.octaveShift === 0;
+}
+
+async function shiftOctave(amount) {
+  if (!state.sourceXML || state.opening || state.mic || state.playbackRun) return;
+  const nextShift = state.octaveShift + amount;
+  if (nextShift < -3 || nextShift > 3) return;
+  state.opening = true;
+  updateOctaveControls();
+  try {
+    const shiftedXML = shiftMusicXMLOctaves(state.sourceXML, nextShift);
+    const score = await engrave(shiftedXML, { sample: state.score.sample, name: state.score.title });
+    mount(score, state.sourcePDF, state.convertedXML, state.sourceXML, nextShift);
+  } catch (error) {
+    micLabel(error.message || 'The score could not be shifted.', 'error-dot');
+  } finally {
+    state.opening = false;
+    updateOctaveControls();
+    refreshPracticeControls();
+  }
 }
 
 function loadPageMarkup() {
@@ -335,6 +367,7 @@ function refreshPracticeControls() {
   playbackStop.disabled = !run;
   text('playback-toggle', run?.status === 'paused' ? 'Resume playback'
     : run?.status === 'playing' ? 'Pause playback' : 'Hear this passage');
+  updateOctaveControls();
 }
 
 function stopPlayback(message = 'Playback stopped') {
@@ -1005,31 +1038,39 @@ async function startListening() {
   }
 }
 
-function mount(score, pdf = null, convertedXML = null) {
+function mount(score, pdf = null, convertedXML = null, sourceXML = null, octaveShift = 0) {
   stopPlayback();
   text('playback-status', '');
   stopListening({ report: false });
   byId('results').hidden = true;
   retry.onclick = null;
   state.score = score;
+  state.sourceXML = sourceXML;
+  state.sourcePDF = pdf;
+  state.convertedXML = convertedXML;
+  state.octaveShift = octaveShift;
+  updateOctaveControls();
   state.review = null;
   state.completedTakes = [];
   state.lastTakeSettings = null;
   state.shownPage = null;
   state.shownPreview = null;
-  if (state.pdfURL) URL.revokeObjectURL(state.pdfURL);
-  state.pdfURL = pdf ? URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' })) : null;
+  if (state.pdfURL?.startsWith('blob:')) URL.revokeObjectURL(state.pdfURL);
+  state.pdfURL = typeof pdf === 'string' ? pdf
+    : pdf ? URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' })) : null;
   const pdfLink = byId('original-pdf');
   pdfLink.hidden = !state.pdfURL;
   pdfLink.href = state.pdfURL || '#';
   if (state.musicXMLURL) URL.revokeObjectURL(state.musicXMLURL);
-  state.musicXMLURL = convertedXML
-    ? URL.createObjectURL(new Blob([convertedXML], { type: 'application/vnd.recordare.musicxml+xml' }))
+  const downloadableXML = sourceXML ? shiftMusicXMLOctaves(sourceXML, octaveShift) : convertedXML;
+  state.musicXMLURL = downloadableXML
+    ? URL.createObjectURL(new Blob([downloadableXML], { type: 'application/vnd.recordare.musicxml+xml' }))
     : null;
   const musicXMLLink = byId('download-musicxml');
   musicXMLLink.hidden = !state.musicXMLURL;
   musicXMLLink.href = state.musicXMLURL || '#';
-  if (convertedXML) musicXMLLink.download = `${score.title || 'score'}.musicxml`;
+  if (state.musicXMLURL) musicXMLLink.download = `${score.title || 'score'}.musicxml`;
+  byId('piece-files').hidden = pdfLink.hidden && musicXMLLink.hidden;
   const label = score.sample ? 'Sample score' : 'Imported score';
   text('score-heading', score.title);
   const count = score.rowCount;
@@ -1048,8 +1089,9 @@ async function loadSample() {
   try {
     const response = await fetch('./assets/morning-lines.musicxml');
     if (!response.ok) throw new Error('The sample could not be downloaded.');
-    const score = await engrave(await response.text(), { sample: true });
-    if (request === state.loading) mount(score);
+    const xml = await response.text();
+    const score = await engrave(xml, { sample: true });
+    if (request === state.loading) mount(score, './assets/morning-lines.pdf', null, xml);
   } catch (error) {
     if (request !== state.loading) return;
     if (state.score) micLabel('The sample could not be loaded. Please try again.', 'error-dot');
@@ -1074,25 +1116,22 @@ async function importFiles(files) {
   }
   dropzone.setAttribute('aria-busy', 'true');
   const label = dropzone.querySelector('strong');
-  label.textContent = pdf && !musicXML ? 'Uploading and converting PDF…' : 'Opening score…';
+  label.textContent = pdf && !musicXML ? 'Preparing PDF recognition…' : 'Opening score…';
   try {
     let xml;
     if (musicXML) {
       xml = await musicXMLFromFile(musicXML);
     } else {
       if (pdf.size > 20 * 1024 * 1024) throw new Error('Choose a PDF smaller than 20 MB.');
-      const body = new FormData();
-      body.append('file', pdf);
-      const response = await fetch('/api/convert', { method: 'POST', body });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'PDF conversion failed.');
-      xml = result.musicxml;
+      xml = await convertPdfInBrowser(pdf, (message) => {
+        label.textContent = message ? `PDF recognition: ${message}` : 'Recognizing PDF…';
+      });
       convertedXML = xml;
     }
     const scoreName = musicXML?.name.replace(/\.[^.]+$/, '') || pdf.name.replace(/\.pdf$/i, '');
     const score = await engrave(xml, { name: scoreName });
     if (request !== state.loading) return;
-    mount(score, pdf, convertedXML);
+    mount(score, pdf, convertedXML, xml);
     uploadDialog.close();
   } catch (error) {
     if (request !== state.loading) return;
@@ -1106,7 +1145,52 @@ async function importFiles(files) {
 
 testMic.addEventListener('click', () => void testMicrophone());
 byId('microphone-diagnostics').addEventListener('toggle', () => void diagnostics.refreshDevices());
+async function convertPdfInBrowser(file, onProgress) {
+  if (pdfConversionActive) throw new Error('A PDF conversion is already running.');
+  pdfConversionActive = true;
+  try {
+    if (pdfConverterFrame.dataset.loaded !== 'true') {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('The PDF recognition engine did not start.')), 30_000);
+        pdfConverterFrame.addEventListener('load', () => {
+          clearTimeout(timeout);
+          pdfConverterFrame.dataset.loaded = 'true';
+          resolve();
+        }, { once: true });
+        pdfConverterFrame.src = new URL('/pdf2music/index.html', location.origin).href;
+      });
+    }
+
+    const requestId = `pdf-${Date.now()}-${++pdfConversionSequence}`;
+    return await new Promise((resolve, reject) => {
+      const finish = (callback, value) => {
+        clearTimeout(timeout);
+        window.removeEventListener('message', receive);
+        callback(value);
+      };
+      const receive = (event) => {
+        if (event.origin !== location.origin || event.source !== pdfConverterFrame.contentWindow
+          || event.data?.requestId !== requestId) return;
+        if (event.data.type === 'papertempo:pdf-progress') {
+          onProgress(event.data.message);
+        } else if (event.data.type === 'papertempo:pdf-done' && typeof event.data.musicxml === 'string') {
+          finish(resolve, event.data.musicxml);
+        } else if (event.data.type === 'papertempo:pdf-error') {
+          finish(reject, new Error(event.data.error || 'PDF recognition failed.'));
+        }
+      };
+      const timeout = setTimeout(() => finish(reject, new Error('PDF recognition timed out. Try a smaller or clearer score.')), 15 * 60_000);
+      window.addEventListener('message', receive);
+      pdfConverterFrame.contentWindow.postMessage({ type: 'papertempo:pdf-convert', requestId, file }, location.origin);
+    });
+  } finally {
+    pdfConversionActive = false;
+  }
+}
 listen.addEventListener('click', () => state.mic ? stopListening() : void startListening());
+byId('octave-down').addEventListener('click', () => void shiftOctave(-1));
+byId('octave-up').addEventListener('click', () => void shiftOctave(1));
+byId('octave-reset').addEventListener('click', () => void shiftOctave(-state.octaveShift));
 playbackToggle.addEventListener('click', () => void togglePlayback());
 playbackStop.addEventListener('click', () => {
   stopPlayback();

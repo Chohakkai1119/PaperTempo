@@ -70,13 +70,22 @@
             <div><h2 id="score-heading">Morning Lines</h2><p id="score-meta">Sample score · 2 pages</p></div>
           </div>
           <div class="score-actions">
-            <a class="button button-subtle" id="original-pdf" href="#" target="_blank" rel="noopener" hidden><svg><use href="#i-file"/></svg>Original PDF</a>
-            <a class="button button-subtle" id="download-musicxml" href="#" download hidden><svg><use href="#i-file"/></svg>MusicXML</a>
+            <div class="octave-controls" role="group" aria-label="Shift score octave">
+              <span id="octave-shift-label" aria-live="polite">Octave 0</span>
+              <button class="button button-subtle octave-button" id="octave-down" type="button" aria-label="Shift score down one octave" title="Shift down one octave">−8va</button>
+              <button class="button button-subtle octave-button" id="octave-up" type="button" aria-label="Shift score up one octave" title="Shift up one octave">+8va</button>
+              <button class="button button-subtle octave-button" id="octave-reset" type="button" aria-label="Reset octave shift" title="Reset octave shift" disabled>Reset</button>
+            </div>
             <button class="button button-subtle" id="load-sample" type="button"><svg><use href="#i-book"/></svg>Load sample</button>
             <button class="button button-outline" id="restart-take" type="button" title="Restart this take (R)" aria-keyshortcuts="R" hidden><svg><use href="#i-restart"/></svg><span>Restart</span></button>
             <button class="button button-subtle" id="fullscreen-toggle" type="button" title="Full screen (F)" aria-keyshortcuts="F" hidden><svg><use href="#i-expand"/></svg><span>Full screen</span></button>
           </div>
         </header>
+        <div class="piece-files" id="piece-files" aria-label="Files for this piece" hidden>
+          <span>Files for this piece</span>
+          <a class="button button-subtle" id="original-pdf" href="#" target="_blank" rel="noopener" hidden><svg><use href="#i-file"/></svg>Open PDF</a>
+          <a class="button button-subtle" id="download-musicxml" href="#" download hidden><svg><use href="#i-file"/></svg>Download MusicXML</a>
+        </div>
         <div class="score-review" id="score-review" hidden>
           <p id="score-review-detail"></p>
           <button class="button button-outline" id="practise-mistake" type="button">Practise this bar</button>
@@ -228,12 +237,13 @@
   <dialog id="upload-dialog" aria-labelledby="upload-heading">
     <div class="dialog-top"><span class="icon-tile"><svg><use href="#i-upload"/></svg></span><form method="dialog"><button class="button button-square" aria-label="Close"><svg><use href="#i-close"/></svg></button></form></div>
     <h2 id="upload-heading">Upload a score</h2>
-    <p>Choose a MusicXML score or convert a printed score PDF. Practice follows the first MusicXML part, including chords and simultaneous voices.</p>
+    <p>Choose a MusicXML score or convert a printed score PDF. Practice includes chords and simultaneous voices across all parts.</p>
     <label class="dropzone" id="dropzone" for="score-file"><svg><use href="#i-file"/></svg><strong>Choose a file or drop it here</strong><span>MusicXML, XML, MXL or PDF</span></label>
     <input class="visually-hidden" id="score-file" type="file" multiple accept=".musicxml,.xml,.mxl,.pdf" aria-describedby="upload-help">
-    <p class="dialog-hint" id="upload-help">PDF conversion runs on the PaperTempo server. Select a PDF with its MusicXML if you already have a conversion.</p>
+    <p class="dialog-hint" id="upload-help">PDF recognition runs in your browser. First use downloads about 125 MB of recognition models. PDF files stay on your device.</p>
     <p class="error" id="upload-error" role="alert" hidden></p>
   </dialog>
+  <iframe id="pdf2music-frame" title="PDF music recognition worker" hidden aria-hidden="true" tabindex="-1"></iframe>
 
   <dialog id="help-dialog" aria-labelledby="help-heading">
     <div class="dialog-top"><span class="icon-tile"><svg><use href="#i-book"/></svg></span><form method="dialog"><button class="button button-square" aria-label="Close"><svg><use href="#i-close"/></svg></button></form></div>

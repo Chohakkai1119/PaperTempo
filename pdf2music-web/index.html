@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>pdf2music — sheet music, made audible</title>
+    <meta
+      name="description"
+      content="Drop a PDF score. Get MIDI and MusicXML. Entirely in your browser."
+    />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <!-- Layered backdrop: WebGL staves + drifting glyph particles -->
+    <canvas id="bg-gl" class="backdrop"></canvas>
+    <canvas id="bg-particles" class="backdrop"></canvas>
+    <div class="backdrop grain" aria-hidden="true"></div>
+
+    <div class="shell">
+      <header class="topbar">
+        <div class="mark">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path
+              d="M11 24.5a3.5 3.5 0 1 0 3.5-3.5V6.5l10 -2.5v14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle cx="21" cy="21" r="3.5" fill="none" stroke="currentColor" stroke-width="2" />
+          </svg>
+          <span>pdf2music</span>
+        </div>
+        <div class="topbar-right">
+          <span class="pill" id="enginePill"><i class="dot"></i><span id="engineText">starting engine</span></span>
+        </div>
+      </header>
+
+      <main class="stage">
+        <!-- ── Intro ─────────────────────────────────────────────── -->
+        <section class="panel panel-intro" id="viewIntro" data-active>
+          <p class="eyebrow">optical music recognition · fully offline</p>
+          <h1 class="display">
+            Turn a <em>printed&nbsp;score</em><br />
+            into <span class="grad">living sound</span>.
+          </h1>
+          <p class="lede">
+            Drop a PDF anywhere on this page. Everything — rendering, recognition,
+            transcription — happens on your own machine. Nothing is uploaded.
+          </p>
+
+          <button class="portal" id="portal" type="button">
+            <span class="portal-ring"></span>
+            <span class="portal-ring delay"></span>
+            <span class="portal-core">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 16.5v1.9A2.6 2.6 0 0 0 6.6 21h10.8a2.6 2.6 0 0 0 2.6-2.6v-1.9"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <strong>Drop your PDF</strong>
+              <small>or click to browse</small>
+            </span>
+          </button>
+
+          <ul class="feats">
+            <li><b>MIDI</b><span>playable, editable</span></li>
+            <li><b>MusicXML</b><span>MuseScore, Sibelius</span></li>
+            <li><b>0&nbsp;bytes</b><span>leave your device</span></li>
+          </ul>
+        </section>
+
+        <!-- ── Working ───────────────────────────────────────────── -->
+        <section class="panel panel-work" id="viewWork">
+          <div class="work-grid">
+            <div class="scan">
+              <div class="scan-frame">
+                <canvas id="preview"></canvas>
+                <div class="scan-empty" id="scanEmpty">
+                  <div class="skeleton-staff"><i></i><i></i><i></i><i></i><i></i></div>
+                  <span>rendering page…</span>
+                </div>
+                <div class="scan-beam"></div>
+                <div class="scan-corners"><i></i><i></i><i></i><i></i></div>
+              </div>
+            </div>
+
+            <div class="work-side">
+              <div class="meter">
+                <svg viewBox="0 0 120 120" class="meter-ring">
+                  <defs>
+                    <linearGradient id="meterGrad" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stop-color="#ffc46b" />
+                      <stop offset="34%" stop-color="#ff8fb1" />
+                      <stop offset="67%" stop-color="#9b8cff" />
+                      <stop offset="100%" stop-color="#6de3ff" />
+                    </linearGradient>
+                  </defs>
+                  <circle class="track" cx="60" cy="60" r="52" />
+                  <circle class="fill" id="meterFill" cx="60" cy="60" r="52" />
+                </svg>
+                <div class="meter-label">
+                  <strong id="meterPct">—</strong>
+                  <small id="meterName">score</small>
+                </div>
+              </div>
+              <h2 class="work-title" id="workTitle">Working…</h2>
+              <p class="work-status" id="workStatus">Warming up</p>
+              <ol class="log" id="log"></ol>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Result ────────────────────────────────────────────── -->
+        <section class="panel panel-done" id="viewDone">
+          <p class="eyebrow ok"><i class="tick"></i> transcription complete</p>
+          <h2 class="display small" id="doneTitle">Your score is ready.</h2>
+
+          <div class="downloads" id="downloads"></div>
+
+          <button class="ghost" id="againBtn" type="button">Convert another score</button>
+        </section>
+
+        <!-- ── Error ─────────────────────────────────────────────── -->
+        <section class="panel panel-error" id="viewError">
+          <p class="eyebrow bad">something went wrong</p>
+          <h2 class="display small">That one didn’t transcribe.</h2>
+          <pre class="err" id="errText"></pre>
+          <button class="ghost" id="retryBtn" type="button">Try another PDF</button>
+        </section>
+      </main>
+
+      <footer class="foot">
+        <span>First run fetches ~125&nbsp;MB of model weights, then caches them.</span>
+        <span class="sep">·</span>
+        <span>Runs 100% locally in your browser.</span>
+      </footer>
+    </div>
+
+    <!-- Full-viewport drop veil -->
+    <div class="veil" id="veil" aria-hidden="true">
+      <div class="veil-inner">
+        <div class="veil-glyph">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="3.5" y="15" width="17" height="5.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+        </div>
+        <strong>Release to transcribe</strong>
+        <small>PDF scores only</small>
+      </div>
+    </div>
+
+    <input type="file" id="fileInput" accept=".pdf,application/pdf" hidden />
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

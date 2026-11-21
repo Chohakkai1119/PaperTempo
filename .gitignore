@@ -6,3 +6,4 @@
 
 # Dependencies
 node_modules/
+/dist/pdf2music/

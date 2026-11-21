@@ -31,6 +31,29 @@ export async function musicXMLFromFile(file) {
   return strFromU8(score);
 }
 
+export function shiftMusicXMLOctaves(xml, octaves) {
+  if (!Number.isInteger(octaves)) throw new TypeError('Octave shift must be a whole number.');
+  const document = readXML(xml);
+  for (const pitch of document.querySelectorAll('pitch')) {
+    const octave = pitch.querySelector('octave');
+    const shifted = Number(octave?.textContent) + octaves;
+    if (!octave || !Number.isInteger(shifted) || shifted < 0 || shifted > 9) {
+      throw new Error('That octave shift would move notes outside the supported range.');
+    }
+    octave.textContent = String(shifted);
+  }
+  for (const unpitched of document.querySelectorAll('unpitched')) {
+    const octave = unpitched.querySelector('display-octave');
+    if (!octave) continue;
+    const shifted = Number(octave.textContent) + octaves;
+    if (!Number.isInteger(shifted) || shifted < 0 || shifted > 9) {
+      throw new Error('That octave shift would move notes outside the supported range.');
+    }
+    octave.textContent = String(shifted);
+  }
+  return new XMLSerializer().serializeToString(document.documentElement);
+}
+
 const onsetEpsilon = 1e-8;
 
 function childrenNamed(element, name) {
@@ -116,19 +139,18 @@ function readMeasures(sourceMeasures, noteId) {
   });
 }
 
-// The first part is practised. Parallel voices/staves in that part can contribute
-// new notes at the same onset. An already sounding note stays in playback but
-// is not a new attack. Expand simple written repeats in the original order.
+// All parts, staves and voices contribute notes. Simultaneous notes are grouped
+// into chords, ties preserve one attack, and simple written repeats are expanded.
 export function extractScore(xml) {
   const document = readXML(xml);
   const root = document.documentElement;
   if (root.localName !== 'score-partwise') throw new Error('Export your score as partwise MusicXML.');
-  const part = childrenNamed(root, 'part')[0];
-  if (!part) throw new Error('This score does not contain a part.');
+  const parts = childrenNamed(root, 'part');
+  if (!parts.length) throw new Error('This score does not contain a part.');
   const rawTitle = root.querySelector('work-title')?.textContent.trim() || root.querySelector('movement-title')?.textContent.trim();
   const usedIds = new Set([...root.querySelectorAll('[id]')].map((element) => element.getAttribute('id')));
   let nextSourceId = 1;
-  const sourceMeasures = readMeasures(childrenNamed(part, 'measure'), (note) => {
+  const partMeasures = parts.map((part, partIndex) => readMeasures(childrenNamed(part, 'measure'), (note) => {
     const original = note.getAttribute('id');
     if (original) return original;
     let id;
@@ -136,6 +158,17 @@ export function extractScore(xml) {
     usedIds.add(id);
     note.setAttribute('id', id);
     return id;
+  }).map((measure) => ({ ...measure, tones: measure.tones.map((tone) => ({ ...tone, part: partIndex })) })));
+  const measureCount = Math.max(...partMeasures.map((measures) => measures.length));
+  const sourceMeasures = Array.from({ length: measureCount }, (_, sourceIndex) => {
+    const measures = partMeasures.map((list) => list[sourceIndex]).filter(Boolean);
+    return {
+      sourceIndex, label: measures[0]?.label || String(sourceIndex + 1),
+      length: Math.max(0, ...measures.map((measure) => measure.length)),
+      tones: measures.flatMap((measure) => measure.tones).sort((a, b) => a.onset - b.onset || b.midi - a.midi),
+      forwardRepeat: measures.some((measure) => measure.forwardRepeat),
+      backwardRepeat: measures.some((measure) => measure.backwardRepeat),
+    };
   });
   const expandedMeasures = [];
   let repeatStart = 0;
@@ -165,7 +198,7 @@ export function extractScore(xml) {
         ...source, beat: attack, measure: index, occurrenceId: `pt-tone-${index}-${source.id}`,
         continuationIds: [], continuations: [],
       };
-      const tieKey = JSON.stringify([tone.voice, tone.staff, tone.midi]);
+      const tieKey = JSON.stringify([tone.part, tone.voice, tone.staff, tone.midi]);
       if (tone.tieStop) {
         const previous = activeTies.get(tieKey);
         if (previous && Math.abs(previous.beat + previous.duration - attack) < onsetEpsilon) {

@@ -82,6 +82,18 @@ async function handleStatic(res, url) {
   }
 }
 
+async function handleModel(res, url) {
+  const name = url.pathname.slice('/models/'.length);
+  if (!/^[a-zA-Z0-9._-]+\.zip$/.test(name)) return send(res, 404, 'text/plain', 'Not found');
+  const upstream = await fetch(`https://github.com/liebharc/homr/releases/download/onnx_checkpoints/${encodeURIComponent(name)}`);
+  if (!upstream.ok || !upstream.body) return send(res, upstream.status || 502, 'text/plain', 'Model download failed');
+  const headers = { 'content-type': 'application/zip', 'cache-control': 'public, max-age=31536000, immutable' };
+  const length = upstream.headers.get('content-length');
+  if (length) headers['content-length'] = length;
+  res.writeHead(200, headers);
+  Readable.fromWeb(upstream.body).pipe(res);
+}
+
 function send(res, status, type, body) {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
   res.end(body);
@@ -91,6 +103,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${port}`);
   try {
     if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
+    else if (url.pathname.startsWith('/models/')) await handleModel(res, url);
     else await handleStatic(res, url);
   } catch (error) {
     console.error(error);
