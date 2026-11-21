@@ -121,13 +121,13 @@
                 <option value="continuous">Keep going</option>
                 <option value="wait">Wait for the right note</option>
               </select>
-              <p class="field-hint" id="following-hint">The cursor moves at the reference tempo.</p>
+              <p class="field-hint" id="following-hint">The cursor holds on the first note until you play, then follows the reference tempo.</p>
             </div>
             <div class="field" id="wait-scoring" hidden>
               <label for="practice-mode">Timing in wait mode</label>
               <select id="practice-mode"><option value="timed">Scored tempo</option><option value="free">Free tempo</option></select>
             </div>
-            <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Clicks and a countdown before listening starts</small></label>
+            <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Optional clicks before the app checks your first note</small></label>
             <div class="playback-fields">
               <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
               <div class="field">
@@ -141,6 +141,36 @@
             <button class="button button-subtle" id="playback-stop" type="button" disabled>Stop playback</button>
           </div>
           <p class="playback-status" id="playback-status" role="status"></p>
+          <div class="microphone-setup">
+            <div class="field">
+              <label for="input-instrument">Instrument being played</label>
+              <select id="input-instrument"><option value="general">Other / General</option></select>
+            </div>
+            <details class="microphone-diagnostics" id="microphone-diagnostics">
+              <summary>Microphone setup and diagnostics</summary>
+              <div class="field">
+                <label for="microphone-device">Microphone input</label>
+                <select id="microphone-device"><option value="">System default</option></select>
+              </div>
+              <div class="field">
+                <label for="input-tuning">Tuning reference (A4 in Hz)</label>
+                <input id="input-tuning" type="number" value="440" min="415" max="466" step="0.1" required>
+              </div>
+              <button id="test-microphone" class="button button-outline" type="button">Test microphone</button>
+              <p class="field-hint" id="capture-message" role="status">Start a microphone test to see the input and pitch readings.</p>
+              <label for="input-meter">Input level</label>
+              <meter id="input-meter" min="0" max="1" value="0" low="0.15" high="0.9" optimum="0.65"></meter>
+              <dl class="capture-details">
+                <dt>Device</dt><dd id="capture-device">—</dd>
+                <dt>Permission</dt><dd id="capture-permission">—</dd>
+                <dt>Stream and track</dt><dd id="capture-track">—</dd>
+                <dt>Track settings</dt><dd id="capture-settings">—</dd>
+                <dt>Analysis</dt><dd id="capture-engine">—</dd>
+                <dt>RMS / peak / noise floor</dt><dd id="capture-levels">—</dd>
+                <dt>Pitch and quality</dt><dd id="capture-pitches">—</dd>
+              </dl>
+            </details>
+          </div>
           <button class="button listen-button" id="listen" type="button" disabled><svg><use href="#i-mic"/></svg><span>Start listening</span></button>
           <div class="mic-state" role="status"><span class="state-dot" id="mic-dot"></span><span id="mic-status">Microphone off</span><span id="count" class="count" hidden></span></div>
         </section>
@@ -155,6 +185,8 @@
             <div><span>Expected</span><strong id="expected-note">C4</strong></div>
             <div><span>Detected</span><strong id="detected-note">—</strong></div>
           </div>
+          <p class="field-hint" id="live-extra" hidden></p>
+          <p class="field-hint notation-key"><span class="legend-correct">✓ On time</span> <span class="legend-timing">~ Early/late</span> <span class="legend-wrong">× Wrong/missed</span> <span>○ Pitch only or ungraded</span></p>
         </section>
 
         <section class="panel results-panel" id="results" aria-labelledby="results-heading" hidden>
@@ -172,7 +204,9 @@
               <tbody id="comparison-metrics"></tbody>
             </table>
           </section>
-          <ul class="result-list" id="result-list"></ul>
+          <p class="result-detail" id="result-counts"></p>
+          <details id="bar-review" hidden><summary>Review by bar</summary><ul class="result-list" id="bar-results"></ul></details>
+          <ul class="result-list" id="result-list" aria-label="Notes and extras"></ul>
           <div class="coach" id="coach" hidden>
             <button class="button button-outline coach-button" id="coach-ask" type="button"><svg><use href="#i-sliders"/></svg><span>What should I practise next?</span></button>
             <div class="coach-result" id="coach-result" aria-live="polite" hidden>
@@ -188,13 +222,13 @@
       </aside>
     </div>
 
-    <footer class="footer"><span><svg><use href="#i-info"/></svg>Microphone audio stays in your browser.</span><span>Designed for one instrument and one note at a time.</span><button class="nav-link mobile-help" type="button" data-help>How it works</button></footer>
+    <footer class="footer"><span><svg><use href="#i-info"/></svg>Microphone audio stays in your browser.</span><button class="nav-link mobile-help" type="button" data-help>How it works</button></footer>
   </main>
 
   <dialog id="upload-dialog" aria-labelledby="upload-heading">
     <div class="dialog-top"><span class="icon-tile"><svg><use href="#i-upload"/></svg></span><form method="dialog"><button class="button button-square" aria-label="Close"><svg><use href="#i-close"/></svg></button></form></div>
     <h2 id="upload-heading">Upload a score</h2>
-    <p>Choose a MusicXML score or convert a printed score PDF. Complex passages are simplified for single-note practice.</p>
+    <p>Choose a MusicXML score or convert a printed score PDF. Practice follows the first MusicXML part, including chords and simultaneous voices.</p>
     <label class="dropzone" id="dropzone" for="score-file"><svg><use href="#i-file"/></svg><strong>Choose a file or drop it here</strong><span>MusicXML, XML, MXL or PDF</span></label>
     <input class="visually-hidden" id="score-file" type="file" multiple accept=".musicxml,.xml,.mxl,.pdf" aria-describedby="upload-help">
     <p class="dialog-hint" id="upload-help">PDF conversion runs on the PaperTempo server. Select a PDF with its MusicXML if you already have a conversion.</p>
@@ -205,9 +239,9 @@
     <div class="dialog-top"><span class="icon-tile"><svg><use href="#i-book"/></svg></span><form method="dialog"><button class="button button-square" aria-label="Close"><svg><use href="#i-close"/></svg></button></form></div>
     <h2 id="help-heading">How it works</h2>
     <ol class="help-steps">
-      <li><strong>Open a score.</strong> Use Morning Lines or upload a single-melody MusicXML file.</li>
+      <li><strong>Open a score.</strong> Use Morning Lines or upload a melody or chordal MusicXML score.</li>
       <li><strong>Hear a passage.</strong> Choose the bars, reference tempo, and playback instrument. Select Hear this passage to follow the highlighted notes.</li>
-      <li><strong>Play it yourself.</strong> Keep going follows the reference tempo and grades the passage at the end. Choose Wait for the right note to advance only when you play the expected pitch.</li>
+      <li><strong>Play it yourself.</strong> Keep going checks your first attack against the first written note, then follows the reference tempo. Choose Wait for the right note to advance only when you play the expected pitch.</li>
       <li><strong>Review your take.</strong> Select a mistake to see it on the score and practise those bars again. Finish two takes of the same passage at the same tempo to compare them.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>

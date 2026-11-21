@@ -16,25 +16,40 @@ async function fetchSample(context, file) {
 function passageNotes(events, startBeat, endBeat, bpm, samples) {
   const secondsPerBeat = 60 / bpm;
   const notes = [];
-  for (const note of events) {
-    if (!Number.isFinite(note.beat) || !Number.isFinite(note.duration) || note.duration <= 0
-      || !Number.isInteger(note.midi) || note.midi < 0 || note.midi > 127) continue;
-    const start = Math.max(note.beat, startBeat);
-    const end = Math.min(note.beat + note.duration, endBeat);
-    if (end > start) {
+  const cursors = [];
+  for (const event of events) {
+    let cursorStart = Infinity;
+    let cursorEnd = -Infinity;
+    for (const note of event.pitches ?? [event]) {
+      if (!Number.isFinite(note.beat) || !Number.isFinite(note.duration) || note.duration <= 0
+        || !Number.isInteger(note.midi) || note.midi < 0 || note.midi > 127) continue;
+      const start = (Math.max(note.beat, startBeat) - startBeat) * secondsPerBeat;
+      const end = (Math.min(note.beat + note.duration, endBeat) - startBeat) * secondsPerBeat;
+      if (end <= start) continue;
       const sample = samples.reduce((nearest, candidate) => (
         Math.abs(candidate.midi - note.midi) < Math.abs(nearest.midi - note.midi) ? candidate : nearest
       ));
-      notes.push({
-        note,
-        sample,
-        onset: (note.beat - startBeat) * secondsPerBeat,
-        start: (start - startBeat) * secondsPerBeat,
-        end: (end - startBeat) * secondsPerBeat,
-      });
+      notes.push({ note, sample, onset: (note.beat - startBeat) * secondsPerBeat, start, end });
+      cursorStart = Math.min(cursorStart, start);
+      cursorEnd = Math.max(cursorEnd, end);
     }
+    if (cursorEnd > cursorStart) cursors.push({ note: event, start: cursorStart, end: cursorEnd });
   }
-  return notes.sort((a, b) => a.start - b.start);
+  notes.sort((a, b) => a.start - b.start);
+  cursors.sort((a, b) => a.start - b.start || a.note.beat - b.note.beat);
+  return { notes, cursors };
+}
+
+function passageGain(notes) {
+  const edges = notes.flatMap(({ start, end }) => [[start, 1], [end, -1]]);
+  edges.sort(([timeA, changeA], [timeB, changeB]) => timeA - timeB || changeA - changeB);
+  let playing = 0;
+  let maximum = 1;
+  for (const [, change] of edges) {
+    playing += change;
+    maximum = Math.max(maximum, playing);
+  }
+  return PLAYBACK_GAIN / maximum;
 }
 
 function audioContext() {
@@ -99,7 +114,7 @@ export function createPlayback({
     return samples.get(file);
   }
 
-  function sound(event, buffer, start, end, elapsed) {
+  function sound(event, buffer, start, end, elapsed, level) {
     const { note, sample } = event;
     const rate = 2 ** ((note.midi - sample.midi) / 12);
     const loop = sample.loop;
@@ -119,8 +134,8 @@ export function createPlayback({
     const soundEnd = loop ? end : Math.min(end, start + (buffer.duration - offset) / rate);
     const duration = soundEnd - start;
     gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(PLAYBACK_GAIN, start + Math.min(0.004, duration * 0.2));
-    gain.gain.setValueAtTime(PLAYBACK_GAIN, soundEnd - Math.min(0.035, duration * 0.35));
+    gain.gain.linearRampToValueAtTime(level, start + Math.min(0.004, duration * 0.2));
+    gain.gain.setValueAtTime(level, soundEnd - Math.min(0.035, duration * 0.35));
     gain.gain.linearRampToValueAtTime(0, soundEnd);
     source.connect(gain).connect(context.destination);
     const voice = { source, gain };
@@ -155,7 +170,7 @@ export function createPlayback({
     current.anchor = audibleStart - current.position;
     const first = current.notes.findIndex(({ end }) => end > current.position);
     let nextSound = first < 0 ? current.notes.length : first;
-    let nextCursor = nextSound;
+    let cursor = -1;
 
     function scheduleSounds() {
       if (token !== revision) return;
@@ -172,7 +187,7 @@ export function createPlayback({
         const scheduledEnd = current.anchor + event.end;
         if (scheduledEnd > scheduledStart) {
           const elapsed = Math.max(0, scheduledStart - (current.anchor + event.onset));
-          sound(event, buffers.get(event.sample.file), scheduledStart, scheduledEnd, elapsed);
+          sound(event, buffers.get(event.sample.file), scheduledStart, scheduledEnd, elapsed, current.gain);
         }
       }
     }
@@ -180,9 +195,9 @@ export function createPlayback({
     function showCursor() {
       if (token !== revision) return;
       const position = context.currentTime - current.anchor;
-      while (nextCursor < current.notes.length && current.notes[nextCursor].end <= position) nextCursor += 1;
-      const event = current.notes[nextCursor];
-      highlight(event && event.start <= position ? event.note : null);
+      while (current.cursors[cursor + 1]?.start <= position) cursor += 1;
+      const event = current.cursors[cursor];
+      highlight(event && position < event.end ? event.note : null);
       if (token === revision) frame = requestFrame(showCursor);
     }
 
@@ -197,9 +212,9 @@ export function createPlayback({
     if (!Number.isFinite(startBeat) || !Number.isFinite(endBeat) || endBeat <= startBeat
       || !Number.isFinite(bpm) || bpm <= 0) return Promise.resolve(false);
     const profile = Object.hasOwn(INSTRUMENTS, instrument) ? INSTRUMENTS[instrument] : INSTRUMENTS.piano;
-    const notes = passageNotes(events, startBeat, endBeat, bpm, profile.samples);
+    const { notes, cursors } = passageNotes(events, startBeat, endBeat, bpm, profile.samples);
     if (!notes.length) return Promise.resolve(false);
-    passage = { notes, duration: (endBeat - startBeat) * 60 / bpm, position: 0 };
+    passage = { notes, cursors, gain: passageGain(notes), duration: (endBeat - startBeat) * 60 / bpm, position: 0 };
     return start(passage);
   }
 

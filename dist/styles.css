@@ -80,15 +80,21 @@ h1, h2, p { margin: 0; }
 .notation g.placeholder { visibility: hidden; }
 .notation .note { cursor: pointer; }
 .notation .note:hover { color: var(--red); fill: var(--red); }
-.notation .expected { color: var(--red); fill: var(--red); }
+.notation .expected { color: #285780; fill: #285780; }
 .notation .matched { color: var(--green); fill: var(--green); }
 .notation .review-on-time { color: var(--green); fill: var(--green); }
 .notation .playback { color: #286364; fill: #286364; }
-.notation svg .note-focus { stroke: none; fill: #f2d9d0; pointer-events: none; }
+.notation svg .note-focus { stroke: none; fill: #e1edf9; pointer-events: none; }
 .notation .note-focus.matched-focus { fill: #e2eddf; }
 .notation .note-focus.playback-focus { fill: #d4eae6; }
 .notation svg .result-mark { color: var(--red-dark); }
-.notation svg .result-mark.timing-mark { color: #8b4c11; }
+.notation svg .result-mark.timing-mark, .notation [data-verdict="timing"] { color: #8a5700; fill: #8a5700; }
+.notation svg .result-mark.correct-mark, .notation [data-verdict="correct"] { color: var(--green); fill: var(--green); }
+.notation [data-verdict="missed"], .notation [data-verdict="wrong"] { color: var(--red-dark); fill: var(--red-dark); }
+.notation .result-mark.pitch-only-mark, .notation [data-verdict="pitch-only"] { color: #46596c; fill: #46596c; }
+.notation .result-mark.unassessable-mark, .notation [data-verdict="unassessable"] { color: #696969; fill: #696969; }
+.notation .result-mark.unassessable-mark rect { stroke-dasharray: 28 34; }
+.notation .result-mark.pitch-only-mark rect { stroke-width: 16; }
 .notation svg .result-mark rect { fill: transparent; stroke: currentColor; stroke-width: 30; }
 .notation svg .timing-mark rect { stroke-dasharray: 65 35; }
 .notation svg .result-mark.is-selected rect { stroke-width: 44; }
@@ -242,3 +248,18 @@ dialog:has(input[type=file]:focus-visible) .dropzone { outline: 2px solid var(--
 .score-panel:-webkit-full-screen { display: flex; flex-direction: column; width: 100vw; height: 100vh; background: var(--card); overflow: auto; }
 .score-panel:-webkit-full-screen .score-stage { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .score-panel:-webkit-full-screen .score-paper { width: min(100%, calc((100vh - 290px) * 1.75)); margin-inline: auto; }
+
+.microphone-setup { display: grid; gap: 10px; padding-top: 12px; }
+.microphone-diagnostics { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: .875rem; }
+.microphone-diagnostics summary, #bar-review summary { cursor: pointer; font-weight: 650; }
+.microphone-diagnostics .field, .microphone-diagnostics .button, .microphone-diagnostics .field-hint { margin-top: 10px; }
+.microphone-diagnostics meter { display: block; width: 100%; height: 14px; }
+.capture-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 5px 10px; margin-bottom: 0; }
+.capture-details dt { color: var(--muted); }
+.capture-details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.notation-key { display: flex; flex-wrap: wrap; gap: 4px 9px; margin-top: 10px; }
+.legend-correct { color: var(--green); }
+.legend-timing, .result-list .result-timing span:last-child { color: #8a5700; }
+.legend-wrong, .result-list :is(.result-wrong, .result-missed, .result-extra) span:last-child { color: var(--red-dark); }
+#live-extra { color: var(--red-dark); margin-top: 10px; }
+#bar-review { margin-top: 10px; }

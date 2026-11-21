@@ -2,7 +2,7 @@
 
 **Practise from sheet music that listens as you play, follows your notes, and turns the page for you.**
 
-PaperTempo is a sheet-music practice website for one instrument playing one note at a time. Open a score, press **Start listening**, and play: the score follows you, scrolls as you go, and shows where your pitch or timing drifted. Microphone audio stays in your browser.
+PaperTempo listens to one instrument and grades melodies and supported chords against the score. Open a score, press **Start listening**, and play. The score follows your performance, scrolls as you go, and shows where your pitch or timing drifted. Microphone audio stays in your browser.
 
 **Live site:** <https://papertempo.vercel.app>
 
@@ -11,13 +11,14 @@ Built at KCL First Year Hack by Daiki, Diart and Yu.
 ## Features
 
 - **Sheet music in the browser.** Scores are engraved with [Verovio](https://www.verovio.org) and shown four rows at a time. The view scrolls up a row once you reach the third row, so the next lines are always visible.
-- **Live score following.** One note at a time is detected from the microphone and matched to the score.
-  - **Keep going** moves the cursor at the reference tempo and grades the passage at the end.
-  - **Wait for the right note** advances only when you play the expected pitch. Use **Scored tempo** to rate timing or **Free tempo** for pitch only.
+- **Live score following.** The app matches detected notes and supported chords to the score.
+  - **Keep going** waits for your first attack, then moves the cursor at the reference tempo and grades the passage at the end.
+  - **Wait for the right note** advances when you play the expected note or chord. Use **Scored tempo** to rate timing or **Free tempo** for pitch only.
+- **Microphone diagnostics.** Choose the instrument you are playing and the microphone you want to use. Test the input level and see the detected pitch before starting a take.
 - **Count-in.** A large 4 · 3 · 2 · 1 countdown appears over the score in time with the clicks. It can be switched off.
 - **Restart (R)** discards the take and goes straight back into the count-in with the same bars, mode and tempo.
 - **Full screen (F)** puts the score panel on its own, including the countdown and Restart.
-- **Results.** You get pitch accuracy, rhythm and an overall grade, with missed notes marked on the score. **Practise bars …** jumps to a weak spot, and **Take comparison** compares repeated takes of the same passage.
+- **Results.** Review pitch accuracy, rhythm, the overall grade, and colour-coded noteheads. **Practise bars …** jumps to a weak spot, and **Take comparison** compares repeated takes of the same passage.
 - **Hear this passage.** Playback uses recorded piano, nylon-string guitar, steel-string guitar, flute or violin.
 - **"What should I practise next?"** After a timed take, a coach suggests one drill for your weakest bar, using Snowflake Cortex. See [Practice coach](#practice-coach-snowflake-cortex).
 - **Imports.** You can open MusicXML (`.musicxml`, `.xml`, `.mxl`), or convert a printed PDF with server-side optical music recognition.
@@ -27,12 +28,12 @@ Built at KCL First Year Hack by Daiki, Diart and Yu.
 1. Open the included **Morning Lines** score.
 2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The score window shows the selected passage.
 3. Set the **Reference tempo**, choose a **Playback instrument**, then select **Hear this passage**. Playback uses instrument recordings bundled with PaperTempo, and the score window follows the highlighted notes. Use **Pause playback** to resume from the same spot, or **Stop playback** to try another instrument before playing again.
-4. Leave **Score following** on **Keep going** and select **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
+4. Choose your **Instrument being played**, leave **Score following** on **Keep going**, and select **Start listening**. After the optional four-beat count-in, start whenever you are ready. Play E4, then play C4 two beats later, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
 5. Select the missed D4 to see it marked on the score. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** compares completed takes of the same passage at the same tempo and in the same following mode.
 6. Select **What should I practise next?** for a one-line drill on your weakest bar. **Practise this bar** jumps to it.
-7. To drill pitches at your own pace, choose **Wait for the right note**. The cursor advances when you play the expected pitch. Choose **Scored tempo** to rate timing against the reference tempo, or **Free tempo** for pitch feedback.
+7. To drill pitches at your own pace, choose **Wait for the right note**. The cursor advances when you play the expected note or chord. Choose **Scored tempo** to rate timing against the reference tempo or **Free tempo** for pitch feedback.
 
-Use **Count-in** to turn the clicks and countdown on or off. With it off, **Keep going** starts immediately, and timed **Wait for the right note** anchors to the first correct note. **Restart** reuses your take settings.
+Use **Count-in** to turn the clicks and countdown on or off. In timed practice, the first detected attack after you are ready is checked against the first written note and sets the timing reference, even if the pitch is wrong. In **Keep going**, the gap to the second note starts at that attack and the live status shows the next pitch. **Restart** reuses your take settings.
 
 ### Keyboard shortcuts
 
@@ -45,7 +46,7 @@ Shortcuts are ignored while you're typing in a field.
 
 ### How grading works
 
-The overall grade weights pitch accuracy at 60% and rhythm at 40%. Rhythm uses beat timing and the spacing between neighbouring notes you matched. Beat timing measures each onset against the count-in. Note spacing compares the played time between attacks with the score, including written rests. Missed notes and extra pitches reduce the grade.
+The overall grade weights pitch accuracy at 60% and rhythm at 40%. Rhythm uses beat timing and the spacing between neighbouring notes you matched. Beat timing measures each onset against the reference tempo starting at your first detected attack. At 120 BPM, correctly assigned notes within 200 ms of the beat earn full beat-timing credit. Wider deviations lose credit gradually. Closely spaced notes still use distinct assignment windows. Note spacing compares the played time between attacks with the score, including written rests. Missed notes and extra pitches reduce the grade.
 
 ## Run locally
 
@@ -59,6 +60,13 @@ You need [Node.js](https://nodejs.org/) 20 or newer. The microphone only works o
 | `npm test` | — | Run the test suite |
 
 There's no build step and nothing to install for `npm run dev` or `npm test`.
+
+### Check the microphone
+
+1. Open <http://localhost:3000> or the live site. Pick the actual instrument under **Instrument being played**.
+2. Open **Microphone setup and diagnostics**, select the input beside your instrument or phone, and click **Test microphone**. Confirm the reported device and live track. The browser can list more device labels after permission is granted.
+3. Play a sustained **C4 (261.63 Hz)** tone at a moderate level. The meter should move, and the pitch readout should show C4. If the meter moves and the pitch is rejected, the sound reached the browser. If the meter stays flat, check the selected input, operating-system gain, and browser permission.
+4. Stop the microphone test before starting a take. Blue is the score cursor, green is correct and within the timing window, yellow is correct but early or late, and red is wrong or missed. Gray marks pitch-only results or insufficient evidence. Select a note or bar in Results to review and retry it.
 
 ### PDF conversion (optional)
 
@@ -115,7 +123,10 @@ The live site runs on Vercel and deploys automatically on every push to `main`.
 ```
 dist/            The website (static files, served as-is)
   app.mjs          UI, practice flow, count-in, Restart, full screen
-  audio.mjs        Microphone, pitch detection, note onsets, count-in clicks
+  audio.mjs        Count-in clicks and microphone entry point
+  microphone.mjs  Browser microphone capture and lifecycle
+  audio-input.mjs  Audio analysis and attack tracking
+  pitch-analysis.mjs  Monophonic and polyphonic pitch detection
   practice.mjs     Matching played notes to the score, grading
   score.mjs        Loading and engraving scores (Verovio)
   rows.mjs         The scrolling 4-row score window
@@ -134,22 +145,18 @@ guides/          Hackathon guide, slides, research and planning notes
 ## Tests
 
 Run `npm test` (Node 20+, no dependencies). The tests cover:
-- the pitch and onset detector, fed with synthesized audio
+- pitch and onset detection with synthetic tones and recorded instrument fixtures
 - score following, grading and take comparison
 - playback
 - the scrolling row window
 - the count-in, Restart and title removal
 - the coach API: validation, target-bar picker, fallback, rate limit, and mocked Cortex responses
 
+Run `node scripts/evaluate-recognition.mjs` for the same-fixture comparison with the previous detector. The [audio recognition evaluation](guides/audio-recognition-evaluation.md) lists the metrics, fixture licences, model comparisons, limitations, and browser and hardware verification steps.
+
 ## Imports
 
-Upload partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). PaperTempo keeps the original notation visible and builds a single-note practice sequence from the first part:
-- Simultaneous chords resolve to their highest pitched note.
-- Overlapping lines resolve to the highest note at each onset.
-- Grace notes and unpitched percussion are skipped.
-- Barline repeats are played once more.
-
-This conversion is intended for one-pitch-at-a-time microphone practice, so it doesn't preserve chord voicings or percussion in the practice sequence. The detector works best on clear, sustained pitches in a quiet room.
+Upload partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). PaperTempo keeps the original notation visible and assesses new attacks in the first part across its staves and voices. Simultaneous notes form a chord, ties preserve a single attack, and simple barline repeats get separate results. Practice compares sounding pitch when MusicXML provides a transposition. Grace notes and unpitched percussion are skipped. Alternate endings and multi-part transcription are outside this implementation.
 
 For a printed PDF, upload the PDF by itself and PaperTempo will convert it with its server-side optical music recognition engine (see [PDF conversion](#pdf-conversion-optional)), then open and download the resulting MusicXML. You can also select a PDF together with an existing MusicXML file to open the original PDF alongside that score without conversion. Check converted notes against the PDF before practising: optical recognition can misread notes and rhythms. Conversion accepts PDFs up to 20 MB.
 

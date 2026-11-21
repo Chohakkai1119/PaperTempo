@@ -1,4 +1,5 @@
-const FRAME_SIZE = 4096;
+export { listMicrophones, microphonePermission, openMicrophone } from './microphone.mjs';
+// Legacy pure helpers are retained for existing callers and baseline tests.
 const VOLUME_FLOOR = 0.008;
 
 export function signalLevel(samples) {
@@ -85,57 +86,6 @@ export function createOnsetTracker(emit) {
     emit({ midi: sounding, at: candidate.at });
     candidate = null;
   };
-}
-
-export async function openMicrophone() {
-  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) throw new Error('Microphone access needs a supported browser over HTTPS.');
-  const context = new AudioContext();
-  let stream;
-  let source;
-  let request;
-  let stopped = false;
-  try {
-    await context.resume();
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-    });
-    const analyser = context.createAnalyser();
-    analyser.fftSize = FRAME_SIZE;
-    source = context.createMediaStreamSource(stream);
-    source.connect(analyser);
-    const samples = new Float32Array(FRAME_SIZE);
-    return {
-      context,
-      monitor(onSignal, onNote) {
-        const detectOnset = createOnsetTracker(onNote);
-        let previous = -Infinity;
-        function frame(now) {
-          if (stopped) return;
-          if (now - previous >= 13) {
-            previous = now;
-            analyser.getFloatTimeDomainData(samples);
-            const level = signalLevel(samples.subarray(samples.length - 1024));
-            const pitch = measurePitch(samples, context.sampleRate, level);
-            onSignal(pitch, level);
-            detectOnset(pitch, level, performance.now() - 1000 * Math.min(1550, context.sampleRate * .032) / context.sampleRate);
-          }
-          request = requestAnimationFrame(frame);
-        }
-        request = requestAnimationFrame(frame);
-      },
-      stop() {
-        stopped = true;
-        cancelAnimationFrame(request);
-        source.disconnect();
-        for (const track of stream.getTracks()) track.stop();
-        void context.close().catch(() => {});
-      },
-    };
-  } catch (error) {
-    for (const track of stream?.getTracks() || []) track.stop();
-    void context.close().catch(() => {});
-    throw error;
-  }
 }
 
 // Follow (free tempo) mode has no target tempo, so it uses a short fixed count-in.
