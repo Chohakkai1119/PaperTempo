@@ -1,0 +1,8 @@
+# Secrets and local Vercel state
+.env
+.env.*
+!.env.example
+.vercel
+
+# Dependencies
+node_modules/

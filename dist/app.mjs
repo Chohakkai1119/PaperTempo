@@ -1,6 +1,10 @@
-import { clearMarks, engrave, markNote, midiName, musicXMLFromFile, notationElement } from './score.mjs';
+import { clearMarks, engrave, markNote, markResult, midiName, musicXMLFromFile, notationElement } from './score.mjs';
 import { openMicrophone, scheduleCountIn } from './audio.mjs';
-import { acceptNote, createTake, MIN_TIMED_MATCHES, summarize, TIMING_TOLERANCE } from './practice.mjs';
+import { createPlayback } from './playback.mjs';
+import {
+  acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, mistakePassage,
+  samePracticePassage, summarize, timingTolerance,
+} from './practice.mjs';
 
 const byId = (id) => document.getElementById(id);
 const text = (id, value) => {
@@ -10,17 +14,39 @@ const text = (id, value) => {
 const state = {
   score: null, index: 0, page: 1, shownPage: null, shownPreview: null,
   matched: null, matchTimer: null, mic: null, opening: false, take: null,
-  countIn: null, lastSignal: 0, pdfURL: null, musicXMLURL: null, loading: 0,
+  countIn: null, lastSignal: 0, pdfURL: null, musicXMLURL: null, loading: 0, completed: false,
+  review: null, completedTakes: [], playbackRun: null,
 };
 const notation = byId('notation');
 const preview = byId('preview-notation');
 const barSelect = byId('start-bar');
+const endBarSelect = byId('end-bar');
 const modeSelect = byId('practice-mode');
+const bpmField = byId('bpm');
 const listen = byId('listen');
+const playbackToggle = byId('playback-toggle');
+const playbackStop = byId('playback-stop');
+const retry = byId('retry');
+const practiseMistake = byId('practise-mistake');
 const scoreFile = byId('score-file');
 const uploadDialog = byId('upload-dialog');
 const uploadError = byId('upload-error');
 const dropzone = byId('dropzone');
+const playback = createPlayback({
+  onNote(note) {
+    const run = state.playbackRun;
+    if (!run) return;
+    run.note = note;
+    if (note) {
+      run.position = note;
+      state.page = note.page;
+    }
+    refreshScore();
+  },
+  onEnd() {
+    stopPlayback('Playback finished');
+  },
+});
 
 function barLabel(index) {
   return 'Bar ' + state.score.bars[index].label;
@@ -46,7 +72,11 @@ function showPreview() {
   const nextPage = state.page + 1;
   const initial = notes.find((note) => note.page === nextPage);
   const lastOnPage = notes.findLastIndex((note) => note.page === state.page);
-  const visible = Boolean(initial && nextPage <= pages.length && state.index >= Math.max(0, lastOnPage - 3));
+  const endBar = endBarSelect.value;
+  const run = state.playbackRun;
+  const index = run ? notes.indexOf(run.position) : state.index;
+  const visible = Boolean((run || !state.completed) && initial && nextPage <= pages.length
+    && (endBar === '' || initial.measure <= Number(endBar)) && index >= Math.max(0, lastOnPage - 3));
   byId('page-preview').hidden = !visible;
   if (!visible || state.shownPreview === nextPage) return;
   const openingBar = state.score.bars[initial.measure].label;
@@ -55,23 +85,58 @@ function showPreview() {
   state.shownPreview = nextPage;
 }
 
+function refreshReview() {
+  const review = state.playbackRun ? null : state.review;
+  byId('score-review').hidden = !review?.selected;
+  if (!review) return;
+  const { selected } = review;
+  for (const note of review.onTime) {
+    if (note.page === state.page && !review.mistakes.has(note.id)) {
+      notation.querySelector(`#${CSS.escape(note.id)}`)?.classList.add('review-on-time');
+    }
+  }
+  if (!selected) return;
+  for (const [id, mistake] of review.mistakes) {
+    const isSelected = id === selected.note.id;
+    if (mistake.note.page === state.page) markResult(notation, isSelected ? selected : mistake, isSelected);
+  }
+  const { startBar, endBar } = mistakePassage(review.take, selected.note.measure);
+  const { bars } = state.score;
+  text('score-review-detail', `${barLabel(selected.note.measure)} · ${midiName(selected.note.midi)} · ${selected.detail}`);
+  text('practise-mistake', startBar === endBar
+    ? `Practise bar ${bars[startBar].label}`
+    : `Practise bars ${bars[startBar].label}–${bars[endBar].label}`);
+}
+
 function refreshScore() {
   if (!state.score) return;
   const { notes, pages } = state.score;
-  const next = notes[state.index];
-  const position = next || notes.at(-1);
+  const run = state.playbackRun;
+  const next = state.completed ? null : notes[state.index];
+  const position = run?.position || next || notes[state.index - 1];
+  const highlighted = run ? run.note : next;
   loadPageMarkup();
   clearMarks(notation);
-  if (state.matched?.page === state.page) markNote(notation, state.matched.id, 'matched');
-  trackNoteVisibility(next?.page === state.page ? markNote(notation, next.id, 'expected') : null);
+  if (!run && state.matched?.page === state.page) markNote(notation, state.matched.id, 'matched');
+  trackNoteVisibility(highlighted?.page === state.page
+    ? markNote(notation, highlighted.id, run ? 'playback' : 'expected') : null);
+  refreshReview();
   text('page-label', `Page ${state.page} of ${pages.length}`);
   text('position', `${barLabel(position.measure)} · Page ${position.page}`);
-  text('expected-note', next ? midiName(next.midi) : '—');
-  byId('prev-page').disabled = state.page <= 1;
-  byId('next-page').disabled = state.page >= pages.length;
-  byId('prev-note').disabled = state.index <= 0 || Boolean(state.mic);
-  byId('next-note').disabled = state.index >= notes.length - 1 || Boolean(state.mic);
+  text('expected-note', !run && next ? midiName(next.midi) : '—');
+  byId('prev-page').disabled = state.page <= 1 || Boolean(run);
+  byId('next-page').disabled = state.page >= pages.length || Boolean(run);
+  byId('prev-note').disabled = state.index <= 0 || Boolean(state.mic || run);
+  byId('next-note').disabled = state.index >= notes.length - 1 || Boolean(state.mic || run);
   showPreview();
+}
+
+function updateEndBars(startIndex) {
+  const firstMeasure = state.score.notes[startIndex].measure;
+  for (const option of endBarSelect.options) {
+    option.disabled = option.value !== '' && Number(option.value) < firstMeasure;
+  }
+  if (endBarSelect.selectedOptions[0]?.disabled) endBarSelect.value = '';
 }
 
 function micLabel(label, tone = '') {
@@ -81,20 +146,134 @@ function micLabel(label, tone = '') {
   if (dot.className !== className) dot.className = className;
 }
 
-function showListening() {
+function refreshPracticeControls() {
   const live = Boolean(state.mic);
+  const run = state.playbackRun;
   listen.classList.toggle('is-listening', live);
   listen.querySelector('use').setAttribute('href', live ? '#i-stop' : '#i-mic');
   listen.querySelector('span').textContent = live ? 'Stop listening' : 'Start listening';
-  listen.disabled = state.opening || !state.score;
+  listen.disabled = state.opening || !state.score || Boolean(run);
+  endBarSelect.disabled = live || listen.disabled;
+  barSelect.disabled = Boolean(run);
+  bpmField.disabled = Boolean(run);
+  modeSelect.disabled = Boolean(run);
+  retry.disabled = Boolean(run);
+  playbackToggle.disabled = !state.score || live || state.opening || run?.status === 'starting';
+  playbackStop.disabled = !run;
+  text('playback-toggle', run?.status === 'paused' ? 'Resume playback'
+    : run?.status === 'playing' ? 'Pause playback' : 'Hear this passage');
+}
+
+function stopPlayback(message = 'Playback stopped') {
+  const run = state.playbackRun;
+  if (!run) return;
+  state.playbackRun = null;
+  playback.stop();
+  state.page = run.previousPage;
+  text('playback-status', message);
+  refreshPracticeControls();
+  refreshScore();
+}
+
+async function togglePlayback() {
+  const score = state.score;
+  let run = state.playbackRun;
+  if (!score || state.mic || state.opening || run?.status === 'starting') return;
+  if (run?.status === 'playing') {
+    playback.pause();
+    run.status = 'paused';
+    text('playback-status', 'Playback paused');
+    refreshPracticeControls();
+    return;
+  }
+
+  const resuming = Boolean(run);
+  let range;
+  if (!run) {
+    if (!bpmField.reportValidity()) return;
+    const startBar = Number(barSelect.value);
+    const position = score.notes.find((note) => note.measure >= startBar);
+    if (!position) return;
+    const nextBar = endBarSelect.value === '' ? null : score.bars[Number(endBarSelect.value) + 1];
+    range = { startBeat: score.bars[startBar].beat, endBeat: nextBar?.beat ?? score.endBeat, bpm: Number(bpmField.value) };
+    run = { status: 'starting', previousPage: state.page, position, note: null };
+    state.playbackRun = run;
+    state.page = position.page;
+  }
+  run.status = 'starting';
+  text('playback-status', 'Starting playback…');
+  refreshPracticeControls();
+  refreshScore();
+  try {
+    const started = await (resuming ? playback.resume() : playback.play(score.events, range));
+    if (state.playbackRun !== run) return;
+    if (!started) {
+      stopPlayback('This passage has no notes to play.');
+      return;
+    }
+    run.status = 'playing';
+    text('playback-status', 'Playing passage');
+    refreshPracticeControls();
+  } catch {
+    if (state.playbackRun === run) stopPlayback('Playback could not start in this browser.');
+  }
+}
+
+function showComparison(current) {
+  const { completedTakes } = state;
+  const previous = current && completedTakes.find((entry) => samePracticePassage(entry, current));
+  byId('take-comparison').hidden = completedTakes.length === 0;
+  byId('comparison-hint').hidden = Boolean(previous);
+  byId('comparison-table').hidden = !previous;
+  if (current) state.completedTakes = [current, ...completedTakes].slice(0, 2);
+  if (!previous) {
+    byId('comparison-metrics').replaceChildren();
+    text('comparison-hint', current
+      ? 'Play the same passage at the same tempo to compare takes.'
+      : 'Finish the passage to compare takes.');
+    return;
+  }
+  const rows = [['Pitch accuracy', `${previous.pitch}%`, `${current.pitch}%`]];
+  if (previous.overall !== null && current.overall !== null) {
+    rows.unshift(['Overall accuracy', `${previous.overall}%`, `${current.overall}%`]);
+    rows.push(['Rhythm', `${previous.rhythm}%`, `${current.rhythm}%`]);
+  }
+  rows.push(['Missed notes', previous.missed, current.missed]);
+  byId('comparison-metrics').replaceChildren(...rows.map(([label, before, after]) => {
+    const row = document.createElement('tr');
+    const heading = document.createElement('th');
+    heading.scope = 'row';
+    heading.textContent = label;
+    const earlier = document.createElement('td');
+    earlier.textContent = String(before);
+    const latest = document.createElement('td');
+    latest.textContent = String(after);
+    row.append(heading, earlier, latest);
+    return row;
+  }));
+}
+
+async function practise({ startIndex, startBar, endBar, bpm }) {
+  if (state.opening || state.mic || state.playbackRun) return;
+  jumpToIndex(startIndex);
+  barSelect.value = String(startBar);
+  endBarSelect.value = String(endBar);
+  modeSelect.value = bpm === null ? 'free' : 'timed';
+  if (bpm !== null) bpmField.value = String(bpm);
+  showPreview();
+  await startListening();
+  if (state.mic) listen.focus();
 }
 
 function showResults(take, cancelled) {
   const { matched, missed, extras, bpm } = take;
-  const { attempted, pitch, timing } = summarize(take);
+  const summary = summarize(take);
+  const { attempted, pitch, rhythm, overall } = summary;
+  const tolerance = bpm ? timingTolerance(bpm) : null;
   byId('results').hidden = false;
   text('results-summary', cancelled ? 'Count-in cancelled' : `${matched.length} of ${attempted} expected notes matched`);
   const metrics = byId('result-metrics');
+  metrics.classList.toggle('has-overall', Boolean(bpm));
   metrics.replaceChildren();
   function metric(label, value) {
     const cell = document.createElement('div');
@@ -105,40 +284,160 @@ function showResults(take, cancelled) {
     cell.append(name, score);
     metrics.append(cell);
   }
+  if (bpm) metric('Overall accuracy', overall === null ? '—' : `${overall}%`);
   metric('Pitch accuracy', pitch === null ? '—' : `${pitch}%`);
-  if (bpm) metric('On time', timing === null ? '—' : `${timing}%`);
+  if (bpm) metric('Rhythm', rhythm === null ? '—' : `${rhythm}%`);
   else metric('Extra notes', String(extras.length));
   byId('timing-detail').hidden = !bpm;
   if (bpm) {
-    text('timing-detail', timing === null
-      ? `Timing needs at least ${MIN_TIMED_MATCHES} matched notes. ${extras.length} extra.`
-      : `Within ±${TIMING_TOLERANCE} ms of the target beat. ${extras.length} extra.`);
+    text('timing-detail', rhythm === null
+      ? `Rhythm and overall accuracy need at least ${MIN_TIMED_MATCHES} matched notes. ${extras.length} extra.`
+      : `Overall is 60% pitch and 40% rhythm. Amber marks are outside ±${Number(tolerance.toFixed(1))} ms. ${extras.length} extra.`);
   }
   const list = byId('result-list');
   const items = [
-    ...missed.map((note) => ({ note, detail: 'Missed' })),
+    ...missed.map((note) => ({ note, detail: 'Missed', kind: 'missed' })),
     ...extras.map(({ note, midi }) => ({ note, detail: `Extra · ${midiName(midi)}` })),
     ...matched.map(({ note, delta }) => ({
       note, detail: delta === null ? 'Matched' : (Math.abs(delta) < 0.5 ? 'On beat' : `${Math.round(Math.abs(delta))} ms ${delta < 0 ? 'early' : 'late'}`),
+      kind: delta !== null && Math.abs(delta) > tolerance ? 'timing' : null,
     })),
   ].sort((a, b) => a.note.beat - b.note.beat);
-  list.replaceChildren(...items.map(({ note, detail }) => {
+  const mistakes = new Map(items.filter(({ kind }) => kind).map((item) => [item.note.id, item]));
+  const selected = mistakes.values().next().value;
+  const onTime = matched.filter(({ delta }) => delta !== null && Math.abs(delta) <= tolerance).map(({ note }) => note);
+  state.review = selected || onTime.length ? { take, mistakes, selected, onTime } : null;
+  list.replaceChildren(...items.map((item) => {
+    const { note, detail, kind } = item;
     const row = document.createElement('li');
     const button = document.createElement('button');
     const name = document.createElement('span');
     const result = document.createElement('span');
     button.type = 'button';
+    if (kind) button.className = 'mistake-result';
     name.textContent = `${barLabel(note.measure)} · ${midiName(note.midi)}`;
     result.textContent = detail;
     button.append(name, result);
     button.addEventListener('click', () => {
+      if (kind) state.review.selected = item;
       jumpToBar(note.measure);
+      if (kind) {
+        if (state.page !== note.page) {
+          state.page = note.page;
+          refreshScore();
+        }
+        trackNoteVisibility(notation.querySelector(`#${CSS.escape(note.id)}`));
+        practiseMistake.focus({ preventScroll: true });
+        byId('score-review').scrollIntoView({ block: 'nearest' });
+        return;
+      }
       barSelect.focus({ preventScroll: true });
       byId('score-heading').scrollIntoView({ block: 'nearest' });
     });
     row.append(button);
     return row;
   }));
+  showComparison(cancelled ? null : completedTakeSummary(take, summary));
+  retry.onclick = () => practise(take);
+  setupCoach(take, cancelled);
+}
+
+// ---- Practice coach: POST measured numbers (never audio) to /api/drill.
+// Agreed shape only: { piece, bars: [{ bar, missedNotes, timingOffsetsMs }] }.
+// Extra (wrong) notes are deliberately left out; the server treats offsets
+// beyond ±2000 ms as a late start rather than a timing error.
+
+let coachRequest = 0;
+
+function coachPayload(take) {
+  const { bars } = state.score;
+  const perBar = new Map();
+  const entry = (note) => {
+    if (!perBar.has(note.measure)) perBar.set(note.measure, { bar: bars[note.measure].label, missedNotes: 0, timingOffsetsMs: [] });
+    return perBar.get(note.measure);
+  };
+  for (const note of take.missed) entry(note).missedNotes += 1;
+  for (const { note, delta } of take.matched) {
+    const item = entry(note);
+    if (Number.isFinite(delta)) item.timingOffsetsMs.push(Math.round(delta));
+  }
+  const measures = [...perBar.keys()].sort((a, b) => a - b);
+  return {
+    piece: (state.score.title || 'Untitled score').slice(0, 120),
+    bars: measures.map((measure) => perBar.get(measure)),
+  };
+}
+
+function setupCoach(take, cancelled) {
+  const coach = byId('coach');
+  const ask = byId('coach-ask');
+  const label = ask.querySelector('span');
+  const resultBox = byId('coach-result');
+  const errorBox = byId('coach-error');
+  const score = state.score;
+  coachRequest += 1;
+  resultBox.hidden = true;
+  errorBox.hidden = true;
+  ask.disabled = false;
+  ask.removeAttribute('aria-busy');
+  label.textContent = 'What should I practise next?';
+
+  const payload = take.bpm && !cancelled ? coachPayload(take) : null;
+  coach.hidden = !payload || payload.bars.length === 0;
+  if (coach.hidden) return;
+
+  ask.onclick = async () => {
+    const request = ++coachRequest;
+    ask.disabled = true;
+    ask.setAttribute('aria-busy', 'true');
+    label.textContent = 'Finding a drill…';
+    errorBox.hidden = true;
+    resultBox.hidden = true;
+    try {
+      const response = await fetch('/api/drill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await response.json().catch(() => null);
+      if (request !== coachRequest || score !== state.score) return;
+      if (!response.ok || !data?.drill) {
+        throw new Error(response.status === 429
+          ? 'You have asked a few times in a row. Wait a minute, then try again.'
+          : response.status === 404
+            ? 'The practice coach is not running here. Start the site with npm run dev to use it locally.'
+            : 'The practice coach could not suggest a drill right now. Please try again.');
+      }
+      const measure = score.bars.findIndex((bar) => bar.label === String(data.targetBar));
+      text('coach-target', `Focus on Bar ${data.targetBar}`);
+      text('coach-drill', data.drill);
+      text('coach-source', data.source === 'cortex' ? 'Coach (Snowflake Cortex)' : 'Quick tip (coach unavailable)');
+      const jump = byId('coach-jump');
+      jump.hidden = measure < 0;
+      jump.onclick = () => {
+        if (state.opening || state.mic || score !== state.score) return;
+        jumpToBar(measure);
+        const end = [...endBarSelect.options].find((option) => option.value === String(measure));
+        if (end && !end.disabled) endBarSelect.value = String(measure);
+        showPreview();
+        barSelect.focus({ preventScroll: true });
+        byId('score-heading').scrollIntoView({ block: 'nearest' });
+      };
+      resultBox.hidden = false;
+    } catch (error) {
+      if (request !== coachRequest) return;
+      const offline = error?.name === 'TimeoutError' || error instanceof TypeError;
+      errorBox.textContent = offline ? 'Could not reach the practice coach. Check your connection and try again.' : error.message;
+      errorBox.hidden = false;
+    } finally {
+      if (request === coachRequest) {
+        ask.disabled = false;
+        ask.removeAttribute('aria-busy');
+        label.textContent = 'What should I practise next?';
+      }
+    }
+  };
 }
 
 function stopListening({ report = true, complete = false } = {}) {
@@ -148,9 +447,13 @@ function stopListening({ report = true, complete = false } = {}) {
   state.mic = null;
   state.take = null;
   state.countIn = null;
-  if (complete) barSelect.value = String(take.notes[take.startIndex].measure);
+  if (complete) {
+    state.completed = true;
+    barSelect.value = String(take.startBar);
+  }
+  if (take) updateEndBars(complete ? take.startIndex : state.index);
   byId('count').hidden = true;
-  showListening();
+  refreshPracticeControls();
   micLabel(complete ? 'Passage complete' : 'Microphone off');
   text('detected-note', '—');
   if (take && report) showResults(take, cancelled);
@@ -159,13 +462,16 @@ function stopListening({ report = true, complete = false } = {}) {
 
 function jumpToIndex(index, keepPage = false) {
   if (!state.score) return;
+  stopPlayback();
   if (state.mic) stopListening();
   clearTimeout(state.matchTimer);
   state.matched = null;
+  state.completed = false;
   state.index = index;
   const note = state.score.notes[index];
   if (!keepPage) state.page = note.page;
   barSelect.value = String(note.measure);
+  updateEndBars(index);
   refreshScore();
 }
 
@@ -178,7 +484,7 @@ function jumpToBar(measure) {
 }
 
 function goToPage(delta) {
-  if (!state.score) return;
+  if (!state.score || state.playbackRun) return;
   const page = state.page + delta;
   if (page < 1 || page > state.score.pages.length) return;
   state.page = page;
@@ -213,26 +519,28 @@ function receiveNote({ midi, at }) {
   state.matched = result.note;
   state.page = result.note.page;
   state.index = take.cursor;
-  const next = state.score.notes[state.index];
-  if (next) barSelect.value = String(next.measure);
-  refreshScore();
   clearTimeout(state.matchTimer);
   state.matchTimer = setTimeout(() => {
     state.matched = null;
     refreshScore();
   }, 460);
-  if (!next) stopListening({ complete: true });
+  if (take.cursor === take.endIndex) {
+    stopListening({ complete: true });
+  } else {
+    barSelect.value = String(take.notes[take.cursor].measure);
+    refreshScore();
+  }
 }
 
 async function startListening() {
-  if (!state.score || state.opening) return;
-  if (state.index >= state.score.notes.length) jumpToBar(Number(barSelect.value));
-  const bpmField = byId('bpm');
+  if (!state.score || state.opening || state.playbackRun) return;
+  if (state.completed) jumpToBar(Number(barSelect.value));
   const bpm = modeSelect.value === 'timed' ? Number(bpmField.value) : null;
   if (modeSelect.value === 'timed' && !bpmField.reportValidity()) return;
   const score = state.score;
   state.opening = true;
-  showListening();
+  text('playback-status', '');
+  refreshPracticeControls();
   micLabel('Requesting microphone access…');
   try {
     const mic = await openMicrophone();
@@ -242,12 +550,21 @@ async function startListening() {
       return;
     }
     state.mic = mic;
+    state.review = null;
     byId('results').hidden = true;
     const current = state.score.notes[state.index];
     const startBar = state.score.bars[Number(barSelect.value)];
     const firstOfBar = state.score.notes.findIndex((note) => note.measure >= startBar.index) === state.index;
+    const endBar = endBarSelect.value;
+    const firstBeyondEnd = endBar === '' ? -1 : score.notes.findIndex((note) => note.measure > Number(endBar));
+    const endIndex = firstBeyondEnd === -1 ? score.notes.length : firstBeyondEnd;
+    const startBeat = firstOfBar ? startBar.beat : current.beat;
     state.countIn = bpm ? scheduleCountIn(mic.context, bpm) : null;
-    state.take = createTake(score.notes, state.index, firstOfBar ? startBar.beat : current.beat, bpm, state.countIn?.downbeat ?? null);
+    state.take = {
+      ...createTake(score.notes, state.index, startBeat, bpm, state.countIn?.downbeat ?? null, endIndex),
+      startBar: startBar.index,
+      endBar,
+    };
     state.lastSignal = 0;
     byId('count').hidden = !bpm;
     micLabel(bpm ? 'Count-in · get ready' : 'Listening · waiting for a note', 'active');
@@ -261,15 +578,20 @@ async function startListening() {
     micLabel(message, 'error-dot');
   } finally {
     state.opening = false;
-    showListening();
+    refreshPracticeControls();
     refreshScore();
   }
 }
 
 function mount(score, pdf = null, convertedXML = null) {
+  stopPlayback();
+  text('playback-status', '');
   stopListening({ report: false });
   byId('results').hidden = true;
+  retry.onclick = null;
   state.score = score;
+  state.review = null;
+  state.completedTakes = [];
   state.shownPage = null;
   state.shownPreview = null;
   if (state.pdfURL) URL.revokeObjectURL(state.pdfURL);
@@ -292,9 +614,11 @@ function mount(score, pdf = null, convertedXML = null) {
   const count = score.pages.length;
   text('score-meta', `${label} · ${count} ${count === 1 ? 'page' : 'pages'}`);
   const lastBar = score.notes.at(-1).measure;
-  barSelect.replaceChildren(...score.bars.slice(0, lastBar + 1).map((bar) => new Option(barLabel(bar.index), bar.index)));
+  const practiceBars = score.bars.slice(0, lastBar + 1);
+  barSelect.replaceChildren(...practiceBars.map((bar) => new Option(barLabel(bar.index), bar.index)));
+  endBarSelect.replaceChildren(new Option('End of score', ''), ...practiceBars.map((bar) => new Option(barLabel(bar.index), bar.index)));
   jumpToIndex(0);
-  showListening();
+  refreshPracticeControls();
 }
 
 async function loadSample() {
@@ -360,8 +684,20 @@ async function importFiles(files) {
 }
 
 listen.addEventListener('click', () => state.mic ? stopListening() : void startListening());
+playbackToggle.addEventListener('click', () => void togglePlayback());
+playbackStop.addEventListener('click', () => {
+  stopPlayback();
+  playbackToggle.focus();
+});
+practiseMistake.addEventListener('click', () => {
+  if (!state.review?.selected) return;
+  const { take, selected } = state.review;
+  const { startBar, endBar } = mistakePassage(take, selected.note.measure);
+  const startIndex = take.notes.findIndex((note) => note.measure >= startBar);
+  return practise({ startIndex, startBar, endBar, bpm: take.bpm });
+});
 barSelect.addEventListener('change', () => jumpToBar(Number(barSelect.value)));
-modeSelect.addEventListener('change', () => { byId('bpm-field').hidden = modeSelect.value !== 'timed'; });
+endBarSelect.addEventListener('change', showPreview);
 byId('prev-page').addEventListener('click', () => goToPage(-1));
 byId('next-page').addEventListener('click', () => goToPage(1));
 byId('prev-note').addEventListener('click', () => jumpToIndex(state.index - 1));
@@ -386,10 +722,19 @@ dropzone.addEventListener('drop', (event) => {
   void importFiles([...event.dataTransfer.files]);
 });
 notation.addEventListener('click', (event) => {
-  if (state.mic || !state.score) return;
+  if (state.mic || state.playbackRun || !state.score) return;
   const id = event.target.closest('.note')?.id;
+  const mistake = state.review?.mistakes.get(id);
+  if (mistake) {
+    state.review.selected = mistake;
+    refreshScore();
+    return;
+  }
   const index = state.score.notes.findIndex((note) => note.id === id);
   if (index >= 0) jumpToIndex(index);
 });
-window.addEventListener('pagehide', () => { if (state.mic) stopListening({ report: false }); });
+window.addEventListener('pagehide', () => {
+  stopPlayback();
+  if (state.mic) stopListening({ report: false });
+});
 void loadSample();

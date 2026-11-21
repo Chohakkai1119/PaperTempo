@@ -26,9 +26,12 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 ## Demo
 
 1. Open the included **Morning Lines** score.
-2. Choose **Bar 9**. The preview shows the first system on page two.
-3. Select **Start listening**. Play E4, D4, and C4, then pause. Play G4 when ready to confirm the first note of page two and turn the page.
-4. Stop listening to review the take. For timing feedback, choose **Scored tempo** before the take, follow the four-beat count-in, and play at least three expected notes. The timing tolerance is ±120 ms.
+2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The preview shows the first system on page two.
+3. Set the **Reference tempo** and choose **Hear this passage**. Playback follows the single-note practice line and turns the page. Use **Pause playback** to resume from the same spot or **Stop playback** to return to practice.
+4. Select **Scored tempo** and **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Play G4 on the first beat of bar 10 to turn the page, then finish the bar.
+5. Select the missed D4 to see it marked on page one. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** shows the results from both completed takes at the same tempo.
+
+Scored tempo combines 60% pitch accuracy with 40% rhythm. Rhythm credit decreases with onset error and missed notes earn no credit. The timing window scales with tempo from 70 to 140 ms, and rhythm and overall accuracy require at least three matched notes.
 
 The **How it works** panel links to the matching two-page A4 PDF and MusicXML files.
 
@@ -39,3 +42,7 @@ Use single-part, single-voice partwise MusicXML (`.musicxml`, `.xml`, or compres
 For a printed PDF, upload the PDF by itself and PaperTempo will convert it with its server-side optical music recognition engine, then open and download the resulting MusicXML. You can also select a PDF together with an existing MusicXML file to open the original PDF alongside that score without conversion. Check converted notes against the PDF before practising: optical recognition can misread notes and rhythms. Conversion currently accepts PDFs up to 20 MB and can take a few minutes on the first run while model weights are downloaded.
 
 Vendor files are bundled with the site. Verovio 6.4.1 is available from https://github.com/rism-digital/verovio/tree/version-6.4.1. The fonts and fflate include their licenses alongside the distributed files.
+
+## Hackathon materials
+
+Find the student guide, event slides, and project planning notes in [guides/](guides/).
