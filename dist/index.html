@@ -23,6 +23,8 @@
     <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l3-7 4 14 4-10 3 3h3"/></symbol>
     <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4m-8 5h4m-4 4h4"/></symbol>
   </svg>
 
@@ -33,8 +35,8 @@
         <span>Paper<span class="brand-accent">Tempo</span></span>
       </a>
       <nav aria-label="Main navigation">
-        <a class="nav-current" href="#practice" aria-current="page">Practice room</a>
         <button class="nav-link" data-help type="button">How it works</button>
+        <a class="nav-current" href="#practice" aria-current="page">Practice room</a>
       </nav>
       <button class="button button-outline upload-button" id="open-upload" type="button"><svg><use href="#i-upload"/></svg>Upload score</button>
     </div>
@@ -71,6 +73,8 @@
             <a class="button button-subtle" id="original-pdf" href="#" target="_blank" rel="noopener" hidden><svg><use href="#i-file"/></svg>Original PDF</a>
             <a class="button button-subtle" id="download-musicxml" href="#" download hidden><svg><use href="#i-file"/></svg>MusicXML</a>
             <button class="button button-subtle" id="load-sample" type="button"><svg><use href="#i-book"/></svg>Load sample</button>
+            <button class="button button-outline" id="restart-take" type="button" title="Restart this take (R)" aria-keyshortcuts="R" hidden><svg><use href="#i-restart"/></svg><span>Restart</span></button>
+            <button class="button button-subtle" id="fullscreen-toggle" type="button" title="Full screen (F)" aria-keyshortcuts="F" hidden><svg><use href="#i-expand"/></svg><span>Full screen</span></button>
           </div>
         </header>
         <div class="score-review" id="score-review" hidden>
@@ -79,9 +83,9 @@
         </div>
         <div class="score-stage">
           <div class="score-paper" id="score-paper" aria-label="Sheet music">
-            <div class="paper-heading" id="paper-heading"><p id="paper-title">Morning Lines</p><span id="paper-subtitle">A short study for solo melody</span></div>
             <div id="notation" class="notation"><p class="score-message">Loading sheet music…</p></div>
           </div>
+          <div class="countdown" id="countdown" aria-live="assertive" hidden><strong id="countdown-number"></strong><span id="countdown-label">Get ready</span></div>
         </div>
         <div class="score-footer">
           <div class="page-controls" aria-label="Score pages">
@@ -112,6 +116,7 @@
               <div class="field"><label for="end-bar">End after</label><select id="end-bar" disabled><option value="">End of score</option></select></div>
             </div>
             <div class="field"><label for="practice-mode">Practice mode</label><select id="practice-mode"><option value="free">Free tempo</option><option value="timed">Scored tempo</option></select></div>
+            <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Clicks and a countdown before listening starts</small></label>
             <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
           </div>
           <div class="playback-controls">
@@ -160,7 +165,7 @@
             </div>
             <p class="coach-error" id="coach-error" role="alert" hidden></p>
           </div>
-          <button class="button button-outline retry-button" id="retry" type="button">Practise again</button>
+          <button class="button button-outline retry-button" id="retry" type="button" title="Restart this take (R)" aria-keyshortcuts="R"><svg><use href="#i-restart"/></svg>Restart</button>
         </section>
       </aside>
     </div>

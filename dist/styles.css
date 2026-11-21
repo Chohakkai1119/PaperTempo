@@ -65,11 +65,8 @@ h1, h2, p { margin: 0; }
 .score-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .button-subtle { border-color: var(--line); padding-inline: 12px; }
 .button-subtle svg { width: 16px; height: 16px; color: var(--muted); }
-.score-stage { background: #eee7da; padding: clamp(13px, 2.2vw, 29px); border-block: 1px solid var(--line); }
+.score-stage { position: relative; background: #eee7da; padding: clamp(13px, 2.2vw, 29px); border-block: 1px solid var(--line); }
 .score-paper { background: var(--paper); min-height: 340px; border: 1px solid #e0d7c9; border-radius: 3px; box-shadow: 0 3px 8px #4b331414; padding: 24px 22px 14px; overflow: hidden; }
-.paper-heading { text-align: center; margin: 0 0 2px; }
-.paper-heading p { font: 400 clamp(1.7rem, 3.25vw, 2.45rem)/1.05 var(--serif); overflow-wrap: anywhere; }
-.paper-heading span { display: inline-block; color: var(--muted); font-size: .8125rem; margin-top: 4px; }
 .notation { min-width: 0; overflow-x: auto; }
 .notation > svg { width: 100%; height: auto; display: block; min-width: 470px; }
 .notation .row-window { overflow: hidden; min-width: 470px; transition: height .32s ease; }
@@ -222,3 +219,22 @@ dialog:has(input[type=file]:focus-visible) .dropzone { outline: 2px solid var(--
 @media (max-width: 760px) {
   .mobile-help { display: inline-flex; min-height: 36px; }
 }
+
+/* Count-in overlay (4, 3, 2, 1) over the score */
+.countdown { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: 6px; background: #fffdf8cc; pointer-events: none; }
+.countdown[hidden] { display: none; }
+.countdown strong { font: 400 clamp(6rem, 22vw, 15rem)/.9 var(--serif); color: var(--red); font-variant-numeric: tabular-nums; }
+.countdown span { font-size: clamp(.95rem, 1.6vw, 1.25rem); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+
+/* Count-in toggle */
+.toggle-field { display: grid; grid-template-columns: auto 1fr; column-gap: 9px; align-items: center; font-size: .875rem; font-weight: 690; cursor: pointer; }
+.toggle-field input { width: 18px; height: 18px; margin: 0; accent-color: var(--red); }
+.toggle-field small { grid-column: 2; color: var(--muted); font-weight: 400; font-size: .8125rem; }
+
+/* Full screen: the score panel fills the screen; 4 rows still fit vertically */
+.score-panel:fullscreen { display: flex; flex-direction: column; width: 100vw; height: 100vh; border-radius: 0; border: 0; background: var(--card); overflow: auto; }
+.score-panel:fullscreen .score-stage { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.score-panel:fullscreen .score-paper { width: min(100%, calc((100vh - 290px) * 1.75)); margin-inline: auto; }
+.score-panel:-webkit-full-screen { display: flex; flex-direction: column; width: 100vw; height: 100vh; background: var(--card); overflow: auto; }
+.score-panel:-webkit-full-screen .score-stage { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.score-panel:-webkit-full-screen .score-paper { width: min(100%, calc((100vh - 290px) * 1.75)); margin-inline: auto; }

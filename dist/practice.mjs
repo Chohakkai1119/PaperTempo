@@ -13,7 +13,7 @@ export function createTake(notes, startIndex, startBeat, bpm, downbeat, endIndex
 
 function lookaheadInTime(take, candidate, at) {
   const { earlier, bpm, downbeat, startBeat } = take;
-  if (bpm) {
+  if (bpm && Number.isFinite(downbeat)) {
     const target = downbeat + (candidate.beat - startBeat) * 60_000 / bpm;
     return Math.abs(at - target) <= Math.max(360, 60_000 / bpm * 0.8);
   }
@@ -45,6 +45,10 @@ export function acceptNote(take, midi, at) {
   }
   const note = notes[matchIndex];
   take.missed.push(...notes.slice(cursor, matchIndex));
+  // Scored tempo without a count-in: the first matched note sets the downbeat.
+  if (take.bpm && !Number.isFinite(take.downbeat)) {
+    take.downbeat = at - (note.beat - take.startBeat) * 60_000 / take.bpm;
+  }
   const delta = take.bpm ? at - take.downbeat - (note.beat - take.startBeat) * 60_000 / take.bpm : null;
   const match = { note, at, delta };
   take.matched.push(match);
@@ -92,6 +96,19 @@ export function summarize(take) {
 
 function finalBar(take) {
   return take.endBar === '' ? take.notes.at(-1).measure : Number(take.endBar);
+}
+
+/**
+ * What Restart goes back to: the same passage (start note, start and end bar),
+ * the same mode and the same tempo. Nothing from the discarded take is kept.
+ */
+export function restartSettings(take) {
+  return {
+    startIndex: take.startIndex,
+    startBar: take.startBar,
+    endBar: take.endBar,
+    bpm: take.bpm ?? null,
+  };
 }
 
 export function mistakePassage(take, measure) {
