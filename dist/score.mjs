@@ -31,65 +31,168 @@ export async function musicXMLFromFile(file) {
   return strFromU8(score);
 }
 
-function extractScore(xml) {
+const onsetEpsilon = 1e-8;
+
+function childrenNamed(element, name) {
+  return [...element.children].filter((child) => child.localName === name);
+}
+
+function childText(element, name) {
+  return childrenNamed(element, name)[0]?.textContent.trim();
+}
+
+function readMeasures(sourceMeasures, noteId) {
+  let divisions = 1;
+  let partTranspose = 0;
+  const staffTransposes = new Map();
+  return sourceMeasures.map((measure, sourceIndex) => {
+    const tones = [];
+    let cursor = 0;
+    let furthest = 0;
+    let previousOnset = 0;
+    for (const element of measure.children) {
+      const type = element.localName;
+      if (type === 'attributes') {
+        const nextDivisions = Number(childText(element, 'divisions'));
+        if (nextDivisions > 0) divisions = nextDivisions;
+        for (const transposition of childrenNamed(element, 'transpose')) {
+          const staff = transposition.getAttribute('number');
+          const semitones = Number(childText(transposition, 'chromatic') ?? 0)
+            + 12 * Number(childText(transposition, 'octave-change') ?? 0);
+          if (childrenNamed(transposition, 'double').length) {
+            throw new Error('Parts with octave doubling are not supported.');
+          }
+          if (staff) staffTransposes.set(staff, semitones);
+          else {
+            partTranspose = semitones;
+            staffTransposes.clear();
+          }
+        }
+        continue;
+      }
+      const duration = Number(childText(element, 'duration') ?? 0) / divisions;
+      if (type === 'backup' || type === 'forward') {
+        cursor += type === 'backup' ? -duration : duration;
+        furthest = Math.max(furthest, cursor);
+        continue;
+      }
+      if (type !== 'note' || childrenNamed(element, 'grace').length) continue;
+      const chord = childrenNamed(element, 'chord').length > 0;
+      const onset = chord ? previousOnset : cursor;
+      if (!chord) {
+        previousOnset = onset;
+        cursor += duration;
+      }
+      furthest = Math.max(furthest, cursor, onset + duration);
+      const pitch = childrenNamed(element, 'pitch')[0];
+      if (!pitch || !(duration > 0)) continue;
+      const step = childText(pitch, 'step');
+      const octave = Number(childText(pitch, 'octave'));
+      const alter = Number(childText(pitch, 'alter') ?? 0);
+      const writtenMidi = (octave + 1) * 12 + pitchClasses[step] + alter;
+      const staff = childText(element, 'staff') ?? '1';
+      const voice = childText(element, 'voice') ?? '1';
+      const midi = writtenMidi + (staffTransposes.get(staff) ?? partTranspose);
+      if (!Number.isInteger(writtenMidi) || !Number.isInteger(midi) || midi < 0 || midi > 127) {
+        throw new Error('This score contains an unsupported pitch.');
+      }
+      const sourceId = element.getAttribute('id');
+      const id = noteId(element);
+      const tieStart = Boolean(element.querySelector('tie[type="start"], tied[type="start"]'));
+      const tieStop = Boolean(element.querySelector('tie[type="stop"], tied[type="stop"]'));
+      tones.push({
+        id, sourceId, onset, duration, midi, writtenMidi, writtenPitch: { step, alter, octave },
+        chord, voice, staff, tieStart, tieStop,
+      });
+    }
+    return {
+      sourceIndex,
+      label: measure.getAttribute('number') || String(sourceIndex + 1),
+      length: furthest,
+      tones: tones.sort((a, b) => a.onset - b.onset || b.midi - a.midi),
+      forwardRepeat: Boolean(measure.querySelector('barline repeat[direction="forward"]')),
+      backwardRepeat: Boolean(measure.querySelector('barline repeat[direction="backward"]')),
+    };
+  });
+}
+
+// The first part is practised. Parallel voices/staves in that part can contribute
+// new notes at the same onset. An already sounding note stays in playback but
+// is not a new attack. Expand simple written repeats in the original order.
+export function extractScore(xml) {
   const document = readXML(xml);
   const root = document.documentElement;
   if (root.localName !== 'score-partwise') throw new Error('Export your score as partwise MusicXML.');
-  const parts = [...root.children].filter((element) => element.localName === 'part');
-  if (parts.length !== 1 || root.querySelector('chord, backup, grace, unpitched, repeat')) {
-    throw new Error('Choose a single melody line without chords, overlapping voices, grace notes or repeats.');
-  }
+  const part = childrenNamed(root, 'part')[0];
+  if (!part) throw new Error('This score does not contain a part.');
   const rawTitle = root.querySelector('work-title')?.textContent.trim() || root.querySelector('movement-title')?.textContent.trim();
-  const bars = [];
-  const events = [];
-  let divisions = 1;
-  let beat = 0;
-  let transpose = 0;
-
-  for (const measure of [...parts[0].children].filter((element) => element.localName === 'measure')) {
-    const bar = { label: measure.getAttribute('number') || String(bars.length + 1), beat, index: bars.length };
-    bars.push(bar);
-    for (const element of measure.children) {
-      if (element.localName === 'attributes') {
-        const nextDivisions = Number(element.querySelector('divisions')?.textContent);
-        if (nextDivisions > 0) divisions = nextDivisions;
-        const transposition = element.querySelector('transpose');
-        if (transposition) {
-          transpose = Number(transposition.querySelector('chromatic')?.textContent || 0)
-            + 12 * Number(transposition.querySelector('octave-change')?.textContent || 0);
-          if (transposition.querySelector('double')) {
-            throw new Error('Choose a score for one sounding pitch at a time.');
-          }
-        }
-      }
-      if (!['note', 'forward'].includes(element.localName)) continue;
-      const duration = Number(element.querySelector('duration')?.textContent) / divisions;
-      if (!Number.isFinite(duration) || duration <= 0) throw new Error('A note or rest is missing a valid duration.');
-      const id = `pt-note-${events.length + 1}`;
-      const event = { id, measure: bar.index, beat, duration, midi: null, tied: false };
-      if (element.localName === 'note') {
-        element.removeAttributeNS('http://www.w3.org/XML/1998/namespace', 'id');
-        element.setAttribute('id', id);
-        const pitch = element.querySelector('pitch');
-        if (pitch) {
-          const step = pitch.querySelector('step')?.textContent;
-          const octaveValue = pitch.querySelector('octave')?.textContent;
-          const alter = Number(pitch.querySelector('alter')?.textContent || 0);
-          event.midi = (Number(octaveValue) + 1) * 12 + pitchClasses[step] + alter + transpose;
-          if (!octaveValue || !Number.isInteger(event.midi) || event.midi < 0 || event.midi > 127) {
-            throw new Error('This score contains an unsupported pitch.');
-          }
-          event.tied = Boolean(element.querySelector('tie[type="stop"], tied[type="stop"]'));
-        } else if (!element.querySelector('rest')) {
-          throw new Error('This score contains a note without a pitch.');
-        }
-      }
-      events.push(event);
-      beat += duration;
+  const usedIds = new Set([...root.querySelectorAll('[id]')].map((element) => element.getAttribute('id')));
+  let nextSourceId = 1;
+  const sourceMeasures = readMeasures(childrenNamed(part, 'measure'), (note) => {
+    const original = note.getAttribute('id');
+    if (original) return original;
+    let id;
+    do { id = `pt-note-${nextSourceId++}`; } while (usedIds.has(id));
+    usedIds.add(id);
+    note.setAttribute('id', id);
+    return id;
+  });
+  const expandedMeasures = [];
+  let repeatStart = 0;
+  for (const measure of sourceMeasures) {
+    if (measure.forwardRepeat) repeatStart = measure.sourceIndex;
+    expandedMeasures.push(measure);
+    if (measure.backwardRepeat) {
+      expandedMeasures.push(...sourceMeasures.slice(repeatStart, measure.sourceIndex + 1));
+      repeatStart = measure.sourceIndex + 1;
     }
   }
-  const notes = events.filter((event) => event.midi !== null && !event.tied);
+
+  const bars = [];
+  const events = [];
+  const notes = [];
+  const activeTies = new Map();
+  let beat = 0;
+  let previousSourceIndex = -1;
+  for (const measure of expandedMeasures) {
+    const index = bars.length;
+    bars.push({ label: measure.label, beat, index });
+    if (measure.sourceIndex !== previousSourceIndex + 1) activeTies.clear();
+    previousSourceIndex = measure.sourceIndex;
+    for (const { onset, ...source } of measure.tones) {
+      const attack = beat + onset;
+      const tone = {
+        ...source, beat: attack, measure: index, occurrenceId: `pt-tone-${index}-${source.id}`,
+        continuationIds: [], continuations: [],
+      };
+      const tieKey = JSON.stringify([tone.voice, tone.staff, tone.midi]);
+      if (tone.tieStop) {
+        const previous = activeTies.get(tieKey);
+        if (previous && Math.abs(previous.beat + previous.duration - attack) < onsetEpsilon) {
+          previous.duration = attack + tone.duration - previous.beat;
+          previous.continuationIds.push(tone.id);
+          previous.continuations.push(tone);
+        }
+        if (!tone.tieStart) activeTies.delete(tieKey);
+        continue;
+      }
+      if (tone.tieStart) activeTies.set(tieKey, tone);
+      else activeTies.delete(tieKey);
+      const last = notes.at(-1);
+      if (last?.measure === index && Math.abs(last.beat - attack) < onsetEpsilon) {
+        last.pitches.push(tone);
+      } else {
+        notes.push({
+          id: tone.id, groupId: `pt-event-${notes.length + 1}`, midi: tone.midi,
+          measure: index, beat: attack, tied: false, pitches: [tone],
+        });
+      }
+      events.push(tone);
+    }
+    beat += measure.length;
+  }
   if (!notes.length) throw new Error('No playable notes were found in that score.');
+  for (const note of notes) note.duration = Math.max(...note.pitches.map((tone) => tone.duration));
   return { document, rawTitle, bars, events, notes, endBeat: beat };
 }
 
@@ -136,25 +239,31 @@ export async function engrave(xml, { sample = false, name = 'Imported score' } =
     const totalPages = toolkit.getPageCount();
     if (totalPages > 50) throw new Error('Choose a score with 50 pages or fewer.');
     const pages = Array.from({ length: totalPages }, (_, i) => toolkit.renderToSVG(i + 1));
-    for (const event of data.events) event.page = toolkit.getPageWithElement(event.id) || null;
-    if (data.notes.some((note) => !note.page)) throw new Error('The notes could not be located on the engraved pages.');
-
-    // Rows (systems), numbered across the whole score, and the row of every note and rest.
-    const rowById = new Map();
+    // Resolve every attack and tie continuation against the engraved page and system.
+    const positionById = new Map();
     const pageRows = [];
     let rowCount = 0;
-    for (const markup of pages) {
+    for (const [pageIndex, markup] of pages.entries()) {
       const systems = new DOMParser().parseFromString(markup, 'image/svg+xml').querySelectorAll('g.system');
       systems.forEach((system, i) => {
-        for (const element of system.querySelectorAll('[id]')) rowById.set(element.id, rowCount + i);
+        for (const element of system.querySelectorAll('g.note[id]')) {
+          positionById.set(element.id, { page: pageIndex + 1, row: rowCount + i });
+        }
       });
       pageRows.push({ first: rowCount, count: systems.length });
       rowCount += systems.length;
     }
-    let lastRow = 0;
     for (const event of data.events) {
-      event.row = rowById.get(event.id) ?? lastRow;
-      lastRow = event.row;
+      const position = positionById.get(event.id);
+      if (!position) throw new Error('The notes could not be located on the engraved pages.');
+      Object.assign(event, position);
+      for (const continuation of event.continuations) {
+        Object.assign(continuation, positionById.get(continuation.id));
+      }
+    }
+    for (const note of data.notes) {
+      const { page, row } = note.pitches[0];
+      Object.assign(note, { page, row });
     }
     return { ...data, pages, pageRows, rowCount, title: data.rawTitle || name, sample };
   } finally {
@@ -187,7 +296,7 @@ export function notationElement(markup, preview = false) {
     }
     if (node.id) node.id = prefix + node.id;
   }
-  svg.setAttribute('role', 'img');
+  svg.setAttribute('role', preview ? 'img' : 'group');
   svg.setAttribute('aria-label', preview ? 'Opening bars of the next page' : 'Engraved sheet music');
   svg.removeAttribute('overflow');
   if (preview) {
@@ -215,10 +324,25 @@ export function markNote(container, id, status) {
   return note;
 }
 
-export function markResult(container, { note: { id }, kind, detail }, selected) {
+export function markResult(container, { note: { id }, kind, detail }, selected = false) {
   const note = container.querySelector(`#${CSS.escape(id)}`);
   if (!note) return;
-  const box = (note.querySelector('.notehead') || note).getBBox();
+  const status = `${kind}${selected ? ' selected' : ''}`;
+  if (note.dataset.assessment === status && note.getAttribute('aria-label') === detail) return;
+  note.querySelector(':scope > .result-mark')?.remove();
+  note.querySelector(':scope > .result-title')?.remove();
+  note.dataset.assessment = status;
+  note.setAttribute('aria-label', detail);
+  note.setAttribute('role', 'button');
+  note.setAttribute('tabindex', '0');
+  const title = document.createElementNS(svgNS, 'title');
+  title.setAttribute('class', 'result-title');
+  title.textContent = detail;
+  note.prepend(title);
+
+  const head = note.querySelector('.notehead') || note;
+  head.dataset.verdict = kind;
+  const box = head.getBBox();
   const mark = document.createElementNS(svgNS, 'g');
   mark.setAttribute('class', `result-mark ${kind}-mark${selected ? ' is-selected' : ''}`);
   mark.setAttribute('aria-hidden', 'true');
@@ -227,7 +351,7 @@ export function markResult(container, { note: { id }, kind, detail }, selected) 
   outline.setAttribute('y', box.y - 110);
   outline.setAttribute('width', box.width + 170);
   outline.setAttribute('height', box.height + 220);
-  outline.setAttribute('rx', 100);
+  outline.setAttribute('rx', kind === 'wrong' || kind === 'missed' ? 0 : 100);
   mark.append(outline);
   if (selected) {
     const label = document.createElementNS(svgNS, 'text');
@@ -240,9 +364,16 @@ export function markResult(container, { note: { id }, kind, detail }, selected) 
   note.append(mark);
 }
 
-export function clearMarks(container) {
-  for (const marker of container.querySelectorAll('.note-focus, .result-mark')) marker.remove();
+export function clearMarks(container, { results = true } = {}) {
+  for (const marker of container.querySelectorAll('.note-focus')) marker.remove();
   for (const note of container.querySelectorAll('.matched, .expected, .playback, .review-on-time')) {
     note.classList.remove('matched', 'expected', 'playback', 'review-on-time');
+  }
+  if (!results) return;
+  for (const mark of container.querySelectorAll('.result-mark, .result-title')) mark.remove();
+  for (const head of container.querySelectorAll('[data-verdict]')) delete head.dataset.verdict;
+  for (const note of container.querySelectorAll('[data-assessment]')) {
+    delete note.dataset.assessment;
+    for (const attr of ['aria-label', 'role', 'tabindex']) note.removeAttribute(attr);
   }
 }
