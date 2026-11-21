@@ -10,7 +10,7 @@ const text = (id, value) => {
 const state = {
   score: null, index: 0, page: 1, shownPage: null, shownPreview: null,
   matched: null, matchTimer: null, mic: null, opening: false, take: null,
-  countIn: null, lastSignal: 0, pdfURL: null, loading: 0,
+  countIn: null, lastSignal: 0, pdfURL: null, musicXMLURL: null, loading: 0,
 };
 const notation = byId('notation');
 const preview = byId('preview-notation');
@@ -266,7 +266,7 @@ async function startListening() {
   }
 }
 
-function mount(score, pdf = null) {
+function mount(score, pdf = null, convertedXML = null) {
   stopListening({ report: false });
   byId('results').hidden = true;
   state.score = score;
@@ -277,6 +277,14 @@ function mount(score, pdf = null) {
   const pdfLink = byId('original-pdf');
   pdfLink.hidden = !state.pdfURL;
   pdfLink.href = state.pdfURL || '#';
+  if (state.musicXMLURL) URL.revokeObjectURL(state.musicXMLURL);
+  state.musicXMLURL = convertedXML
+    ? URL.createObjectURL(new Blob([convertedXML], { type: 'application/vnd.recordare.musicxml+xml' }))
+    : null;
+  const musicXMLLink = byId('download-musicxml');
+  musicXMLLink.hidden = !state.musicXMLURL;
+  musicXMLLink.href = state.musicXMLURL || '#';
+  if (convertedXML) musicXMLLink.download = `${score.title || 'score'}.musicxml`;
   const label = score.sample ? 'Sample score' : 'Imported score';
   text('score-heading', score.title);
   text('paper-title', score.title);
@@ -311,23 +319,35 @@ async function importFiles(files) {
   if (!files.length) return;
   const request = ++state.loading;
   const pdf = files.find((file) => /\.pdf$/i.test(file.name));
-  const musicXML = files.find((file) => /\.(musicxml|xml|mxl)$/i.test(file.name));
+  let musicXML = files.find((file) => /\.(musicxml|xml|mxl)$/i.test(file.name));
+  let convertedXML = null;
   uploadError.hidden = true;
-  if (!musicXML) {
-    uploadError.textContent = pdf
-      ? 'To open this PDF, select it together with its converted MusicXML file.'
-      : 'Choose a MusicXML, XML or MXL score.';
+  if (!musicXML && !pdf) {
+    uploadError.textContent = 'Choose a MusicXML, XML, MXL or PDF score.';
     uploadError.hidden = false;
     return;
   }
   dropzone.setAttribute('aria-busy', 'true');
   const label = dropzone.querySelector('strong');
-  label.textContent = 'Opening score…';
+  label.textContent = pdf && !musicXML ? 'Uploading and converting PDF…' : 'Opening score…';
   try {
-    const xml = await musicXMLFromFile(musicXML);
-    const score = await engrave(xml, { name: musicXML.name.replace(/\.[^.]+$/, '') });
+    let xml;
+    if (musicXML) {
+      xml = await musicXMLFromFile(musicXML);
+    } else {
+      if (pdf.size > 20 * 1024 * 1024) throw new Error('Choose a PDF smaller than 20 MB.');
+      const body = new FormData();
+      body.append('file', pdf);
+      const response = await fetch('/api/convert', { method: 'POST', body });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'PDF conversion failed.');
+      xml = result.musicxml;
+      convertedXML = xml;
+    }
+    const scoreName = musicXML?.name.replace(/\.[^.]+$/, '') || pdf.name.replace(/\.pdf$/i, '');
+    const score = await engrave(xml, { name: scoreName });
     if (request !== state.loading) return;
-    mount(score, pdf);
+    mount(score, pdf, convertedXML);
     uploadDialog.close();
   } catch (error) {
     if (request !== state.loading) return;
