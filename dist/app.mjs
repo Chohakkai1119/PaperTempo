@@ -315,7 +315,7 @@ async function importFiles(files) {
   uploadError.hidden = true;
   if (!musicXML) {
     uploadError.textContent = pdf
-      ? 'To open this PDF, select it together with its converted MusicXML file.'
+      ? 'PaperTempo can’t read notes from a PDF on its own. Convert it to MusicXML first (for example with Audiveris), then select the PDF together with the converted .mxl or .musicxml file.'
       : 'Choose a MusicXML, XML or MXL score.';
     uploadError.hidden = false;
     return;
