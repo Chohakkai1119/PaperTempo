@@ -163,6 +163,105 @@ function showResults(take, cancelled) {
     await startListening();
     if (state.mic) listen.focus();
   };
+  setupCoach(take, cancelled);
+}
+
+// ---- Practice coach: POST measured numbers (never audio) to /api/drill.
+// Agreed shape only: { piece, bars: [{ bar, missedNotes, timingOffsetsMs }] }.
+// Extra (wrong) notes are deliberately left out; the server treats offsets
+// beyond ±2000 ms as a late start rather than a timing error.
+
+let coachRequest = 0;
+
+function coachPayload(take) {
+  const { bars } = state.score;
+  const perBar = new Map();
+  const entry = (note) => {
+    if (!perBar.has(note.measure)) perBar.set(note.measure, { bar: bars[note.measure].label, missedNotes: 0, timingOffsetsMs: [] });
+    return perBar.get(note.measure);
+  };
+  for (const note of take.missed) entry(note).missedNotes += 1;
+  for (const { note, delta } of take.matched) {
+    const item = entry(note);
+    if (Number.isFinite(delta)) item.timingOffsetsMs.push(Math.round(delta));
+  }
+  const measures = [...perBar.keys()].sort((a, b) => a - b);
+  return {
+    piece: (state.score.title || 'Untitled score').slice(0, 120),
+    bars: measures.map((measure) => perBar.get(measure)),
+  };
+}
+
+function setupCoach(take, cancelled) {
+  const coach = byId('coach');
+  const ask = byId('coach-ask');
+  const label = ask.querySelector('span');
+  const resultBox = byId('coach-result');
+  const errorBox = byId('coach-error');
+  const score = state.score;
+  coachRequest += 1;
+  resultBox.hidden = true;
+  errorBox.hidden = true;
+  ask.disabled = false;
+  ask.removeAttribute('aria-busy');
+  label.textContent = 'What should I practise next?';
+
+  const payload = take.bpm && !cancelled ? coachPayload(take) : null;
+  coach.hidden = !payload || payload.bars.length === 0;
+  if (coach.hidden) return;
+
+  ask.onclick = async () => {
+    const request = ++coachRequest;
+    ask.disabled = true;
+    ask.setAttribute('aria-busy', 'true');
+    label.textContent = 'Finding a drill…';
+    errorBox.hidden = true;
+    resultBox.hidden = true;
+    try {
+      const response = await fetch('/api/drill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await response.json().catch(() => null);
+      if (request !== coachRequest || score !== state.score) return;
+      if (!response.ok || !data?.drill) {
+        throw new Error(response.status === 429
+          ? 'You have asked a few times in a row. Wait a minute, then try again.'
+          : response.status === 404
+            ? 'The practice coach is not running here. Start the site with npm run dev to use it locally.'
+            : 'The practice coach could not suggest a drill right now. Please try again.');
+      }
+      const measure = score.bars.findIndex((bar) => bar.label === String(data.targetBar));
+      text('coach-target', `Focus on Bar ${data.targetBar}`);
+      text('coach-drill', data.drill);
+      text('coach-source', data.source === 'cortex' ? 'Coach (Snowflake Cortex)' : 'Quick tip (coach unavailable)');
+      const jump = byId('coach-jump');
+      jump.hidden = measure < 0;
+      jump.onclick = () => {
+        if (state.opening || state.mic || score !== state.score) return;
+        jumpToBar(measure);
+        const end = [...endBarSelect.options].find((option) => option.value === String(measure));
+        if (end && !end.disabled) endBarSelect.value = String(measure);
+        showPreview();
+        barSelect.focus({ preventScroll: true });
+        byId('score-heading').scrollIntoView({ block: 'nearest' });
+      };
+      resultBox.hidden = false;
+    } catch (error) {
+      if (request !== coachRequest) return;
+      const offline = error?.name === 'TimeoutError' || error instanceof TypeError;
+      errorBox.textContent = offline ? 'Could not reach the practice coach. Check your connection and try again.' : error.message;
+      errorBox.hidden = false;
+    } finally {
+      if (request === coachRequest) {
+        ask.disabled = false;
+        ask.removeAttribute('aria-busy');
+        label.textContent = 'What should I practise next?';
+      }
+    }
+  };
 }
 
 function stopListening({ report = true, complete = false } = {}) {
