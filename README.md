@@ -25,12 +25,14 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 ## Demo
 
 1. Open the included **Morning Lines** score.
-2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The preview shows the first system on page two.
-3. Set the **Reference tempo** and choose **Hear this passage**. Playback follows the single-note practice line and turns the page. Use **Pause playback** to resume from the same spot or **Stop playback** to return to practice.
-4. Select **Scored tempo** and **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Play G4 on the first beat of bar 10 to turn the page, then finish the bar.
-5. Select the missed D4 to see it marked on page one. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** shows the results from both completed takes at the same tempo.
+2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The score window shows the selected passage.
+3. Set the **Reference tempo**, choose a **Playback instrument**, then select **Hear this passage**. Playback uses instrument recordings bundled with PaperTempo, and the score window follows the highlighted notes. Use **Pause playback** to resume from the same spot or **Stop playback** to try another instrument before playing again.
+4. Select **Scored tempo** and **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Play G4 on the first beat of bar 10 and watch the score window move, then finish the bar.
+5. Select the missed D4 to see it marked on the score. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** shows the results from both completed takes at the same tempo.
 
 Scored tempo combines 60% pitch accuracy with 40% rhythm. Rhythm credit decreases with onset error and missed notes earn no credit. The timing window scales with tempo from 70 to 140 ms, and rhythm and overall accuracy require at least three matched notes.
+
+The bundled [instrument recording credits](dist/assets/instruments/CREDITS.txt) list the source and license for each sample.
 
 The **How it works** panel links to the matching two-page A4 PDF and MusicXML files.
 

@@ -1,6 +1,7 @@
 import { clearMarks, engrave, markNote, markResult, midiName, musicXMLFromFile, notationElement } from './score.mjs';
 import { openMicrophone, scheduleCountIn } from './audio.mjs';
-import { createPlayback } from './playback.mjs';
+import { INSTRUMENTS } from './instruments.mjs';
+import { createPlayback, InstrumentSampleError } from './playback.mjs';
 import { VISIBLE_ROWS, clampWindowTop, windowRows, windowTopForRow } from './rows.mjs';
 import {
   acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, mistakePassage,
@@ -25,6 +26,8 @@ const barSelect = byId('start-bar');
 const endBarSelect = byId('end-bar');
 const modeSelect = byId('practice-mode');
 const bpmField = byId('bpm');
+const instrumentSelect = byId('playback-instrument');
+instrumentSelect.replaceChildren(...Object.entries(INSTRUMENTS).map(([id, { label }]) => new Option(label, id)));
 const listen = byId('listen');
 const playbackToggle = byId('playback-toggle');
 const playbackStop = byId('playback-stop');
@@ -243,6 +246,7 @@ function refreshPracticeControls() {
   endBarSelect.disabled = live || listen.disabled;
   barSelect.disabled = Boolean(run);
   bpmField.disabled = Boolean(run);
+  instrumentSelect.disabled = Boolean(run);
   modeSelect.disabled = Boolean(run);
   retry.disabled = Boolean(run);
   playbackToggle.disabled = !state.score || live || state.opening || run?.status === 'starting';
@@ -282,7 +286,12 @@ async function togglePlayback() {
     const position = score.notes.find((note) => note.measure >= startBar);
     if (!position) return;
     const nextBar = endBarSelect.value === '' ? null : score.bars[Number(endBarSelect.value) + 1];
-    range = { startBeat: score.bars[startBar].beat, endBeat: nextBar?.beat ?? score.endBeat, bpm: Number(bpmField.value) };
+    range = {
+      startBeat: score.bars[startBar].beat,
+      endBeat: nextBar?.beat ?? score.endBeat,
+      bpm: Number(bpmField.value),
+      instrument: instrumentSelect.value,
+    };
     run = { status: 'starting', previousPage: state.page, position, note: null };
     state.playbackRun = run;
     state.page = position.page;
@@ -301,8 +310,10 @@ async function togglePlayback() {
     run.status = 'playing';
     text('playback-status', 'Playing passage');
     refreshPracticeControls();
-  } catch {
-    if (state.playbackRun === run) stopPlayback('Playback could not start in this browser.');
+  } catch (error) {
+    if (state.playbackRun === run) stopPlayback(error instanceof InstrumentSampleError
+      ? error.message
+      : 'Playback could not start in this browser.');
   }
 }
 

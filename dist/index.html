@@ -112,7 +112,13 @@
               <div class="field"><label for="end-bar">End after</label><select id="end-bar" disabled><option value="">End of score</option></select></div>
             </div>
             <div class="field"><label for="practice-mode">Practice mode</label><select id="practice-mode"><option value="free">Free tempo</option><option value="timed">Scored tempo</option></select></div>
-            <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
+            <div class="playback-fields">
+              <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
+              <div class="field">
+                <label for="playback-instrument">Playback instrument</label>
+                <select id="playback-instrument"><option value="piano">Piano</option></select>
+              </div>
+            </div>
           </div>
           <div class="playback-controls">
             <button class="button button-outline" id="playback-toggle" type="button" disabled>Hear this passage</button>
@@ -183,9 +189,9 @@
     <h2 id="help-heading">How it works</h2>
     <ol class="help-steps">
       <li><strong>Open a score.</strong> Use Morning Lines or upload a single-melody MusicXML file.</li>
-      <li><strong>Hear a passage.</strong> Choose the bars and reference tempo, then select Hear this passage to follow the notes across pages.</li>
+      <li><strong>Hear a passage.</strong> Choose the bars, reference tempo, and playback instrument. Select Hear this passage to follow the highlighted notes.</li>
       <li><strong>Play it yourself.</strong> Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in and a score based on pitch and rhythm.</li>
-      <li><strong>Play across the page break.</strong> PaperTempo previews the next page and turns when you play its first note.</li>
+      <li><strong>Follow the score.</strong> The score window moves as you play so you can see the upcoming rows.</li>
       <li><strong>Review your take.</strong> Select a mistake to see it on the score and practise those bars again. Finish two takes of the same passage at the same tempo to compare them.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>
