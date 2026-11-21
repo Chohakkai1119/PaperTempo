@@ -1,6 +1,6 @@
 # PaperTempo
 
-PaperTempo is a sheet-music practice website. It listens for one instrument and one note at a time. Microphone audio and MusicXML files are processed in the browser. When a PDF is uploaded without MusicXML, the PDF is sent to the PaperTempo server for conversion.
+PaperTempo is a sheet-music practice website. It listens for one instrument and grades melodies and supported chords against the score. Microphone audio and MusicXML files are processed in the browser. When a PDF is uploaded without MusicXML, the PDF is sent to the PaperTempo server for conversion.
 
 ## Run locally
 
@@ -27,9 +27,9 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 1. Open the included **Morning Lines** score.
 2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The score window shows the selected passage.
 3. Set the **Reference tempo**, choose a **Playback instrument**, then select **Hear this passage**. Playback uses instrument recordings bundled with PaperTempo, and the score window follows the highlighted notes. Use **Pause playback** to resume from the same spot or **Stop playback** to try another instrument before playing again.
-4. Leave **Score following** on **Keep going** and select **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
+4. Choose your **Instrument being played**, leave **Score following** on **Keep going**, and select **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
 5. Select the missed D4 to see it marked on the score. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** compares completed takes of the same passage at the same tempo and in the same following mode.
-6. To drill pitches at your own pace, choose **Wait for the right note**. The cursor advances when you play the expected pitch. Choose **Scored tempo** to rate timing against the reference tempo or **Free tempo** for pitch feedback.
+6. To drill pitches at your own pace, choose **Wait for the right note**. The cursor advances when you play the expected pitch or chord. Choose **Scored tempo** to rate timing against the reference tempo or **Free tempo** for pitch feedback.
 
 Use **Count-in** to turn the clicks and countdown on or off. With it off, **Keep going** starts immediately and timed **Wait for the right note** anchors to the first correct note. **Restart** reuses your take settings.
 
@@ -39,9 +39,18 @@ The bundled [instrument recording credits](dist/assets/instruments/CREDITS.txt) 
 
 The **How it works** panel links to the matching two-page A4 PDF and MusicXML files.
 
+## Check the microphone
+
+1. Run `npm run dev` and open `http://localhost:3000`. Pick the actual instrument under **Instrument being played**.
+2. Open **Microphone setup and diagnostics**, select the input physically beside the instrument or phone, and click **Test microphone**. Confirm the reported device label and live track. The browser can list more device labels after permission is granted.
+3. Play a sustained **C4 (261.63 Hz)** tone from the phone at a moderate level. The meter should move, and the pitch readout should show C4 near 261.6 Hz. A moving meter and a pitch rejection indicate that sound reached the browser. If the meter stays flat, check the selected input, operating-system gain, and permission. Play a recorded instrument note next to compare its result.
+4. Stop the microphone test before starting a practice take. The blue cursor shows where to play. Green means correct and on time, yellow means correct and early or late, and red means wrong or missed. Gray marks pitch-only results or insufficient evidence, with a text verdict on each assessed note. Select a note or a bar in Results to review and retry it.
+
+Run `npm test` for the dependency-free regressions and `node scripts/evaluate-recognition.mjs` for the same-fixture baseline comparison. The [audio recognition evaluation](guides/audio-recognition-evaluation.md) includes the metrics, fixture licences, model comparison, limitations, and optional browser and hardware verification steps.
+
 ## Imports
 
-Upload partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). PaperTempo keeps the original notation visible and builds a single-note practice sequence from the first part: simultaneous chords resolve to their highest pitched note, overlapping lines resolve to the highest note at each onset, grace notes and unpitched percussion are skipped, and barline repeats are played once more. This conversion is intended for one-pitch-at-a-time microphone practice, so it does not preserve chord voicings or percussion in the practice sequence. The detector works best on clear, sustained pitches in a quiet room.
+Upload partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). PaperTempo keeps the original notation visible and assesses new attacks in the first part across its staves and voices. Simultaneous notes form a chord, ties preserve a single attack, and simple barline repeats get separate results. Practice compares sounding pitch when MusicXML provides a transposition. Grace notes and unpitched percussion are skipped. Alternate endings and multi-part transcription are outside this implementation.
 
 For a printed PDF, upload the PDF by itself and PaperTempo will convert it with its server-side optical music recognition engine, then open and download the resulting MusicXML. You can also select a PDF together with an existing MusicXML file to open the original PDF alongside that score without conversion. Check converted notes against the PDF before practising: optical recognition can misread notes and rhythms. Conversion currently accepts PDFs up to 20 MB and can take a few minutes on the first run while model weights are downloaded.
 

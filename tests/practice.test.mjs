@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  acceptNote, completedTakeSummary, createTake, finalizeContinuousTake, MIN_TIMED_MATCHES,
-  samePracticePassage, summarize, timingTolerance,
+  acceptNote, acceptPerformance, advancePerformance, completedTakeSummary, createTake, finalizeContinuousTake,
+  MIN_TIMED_MATCHES, samePracticePassage, summarize, timingTolerance, updateInputHealth,
 } from '../dist/practice.mjs';
 import { sampleNotes, midi } from './helpers.mjs';
 
@@ -264,4 +264,174 @@ test('wait for the right note stays on the expected pitch and keeps free tempo p
   assert.equal(summary.overall, null);
   const stored = completedTakeSummary(take, summary);
   assert.equal(samePracticePassage(stored, { ...stored, following: 'continuous' }), false);
+});
+
+function event(beat, midis, measure = 0) {
+  const pitches = midis.map((midi) => ({
+    midi, beat, measure, page: 1, id: `printed-${midi}`, occurrenceId: `${beat}-${midi}`,
+  }));
+  return { ...pitches.at(-1), duration: 1, pitches };
+}
+
+function perform(take, at, ...midis) {
+  return acceptPerformance(take, { onsetMs: at, pitches: midis.map((midi) => ({ midi })) });
+}
+
+test('incorrect three-tone chord credits two written heads, marks the missing tone and reports the extra', () => {
+  const notes = [event(0, [60, 64, 67])];
+  const take = createTake(notes, 0, 0, 120, 1000, 1, { following: 'continuous', endBeat: 1 });
+  assert.equal(perform(take, 1000, 60, 64, 69).type, 'pending');
+  assert.equal(advancePerformance(take, 1080).changed, true);
+  assert.deepEqual([...take.results.values()].map(({ note, status }) => [note.midi, status]), [
+    [60, 'correct'], [64, 'correct'], [67, 'missed'],
+  ]);
+  assert.deepEqual(take.extras.map(({ midi }) => midi), [69]);
+  const summary = summarize(take);
+  assert.equal(summary.pitch, 50);
+  assert.deepEqual(summary.chords, { total: 1, complete: 0, expectedTones: 3, matchedTones: 2 });
+  assert.equal(summary.bars[0].mistakes, 2);
+});
+
+test('a strum groups distinct attacks and retains each offset while allowing spread', () => {
+  const notes = [event(0, [60, 64, 67]), event(0.75, [69])];
+  const take = createTake(notes, 0, 0, 120, 1000, 2,
+    { following: 'continuous', endBeat: 2, groupWindowMs: 150, strumAllowanceMs: 130 });
+  perform(take, 1000, 60);
+  perform(take, 1060, 64);
+  perform(take, 1120, 67);
+  advancePerformance(take, 1150);
+  assert.equal(perform(take, 1375, 69).type, 'matched');
+  const summary = summarize(take);
+  assert.deepEqual(summary.results.map(({ status, delta, gradedDelta }) => [status, delta, gradedDelta]), [
+    ['correct', 0, 0], ['correct', 60, 0], ['correct', 120, 0], ['correct', 0, 0],
+  ]);
+  assert.equal(summary.spacing, 100);
+  assert.equal(summary.chords.complete, 1);
+});
+
+test('fast adjacent written onset limits chord grouping and preserves its own attack', () => {
+  const notes = [event(0, [60, 64]), event(0.25, [69])];
+  const take = createTake(notes, 0, 0, 120, 1000, 2,
+    { following: 'continuous', endBeat: 1, groupWindowMs: 150, strumAllowanceMs: 130 });
+  perform(take, 1000, 60);
+  perform(take, 1033, 64);
+  assert.equal(perform(take, 1100, 69).type, 'matched');
+  assert.equal(take.extras.length, 0);
+  assert.equal(summarize(take).correct, 3);
+});
+
+test('late pitch stays yellow, wrong pitch becomes red at slot close and repeated heads grade independently', () => {
+  const notes = [event(0, [60]), event(1, [60]), event(2, [67], 1)];
+  const take = createTake(notes, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 3 });
+  perform(take, 1150, 60);
+  perform(take, 1500, 60);
+  perform(take, 2000, 69);
+  assert.equal(take.results.has('2-67'), false);
+  advancePerformance(take, 2500, { complete: true });
+  const summary = summarize(take);
+  assert.deepEqual(summary.results.map(({ status, heardMidi }) => [status, heardMidi]), [
+    ['timing', 60], ['correct', 60], ['wrong', 69],
+  ]);
+  assert.equal(summary.late, 1);
+  assert.equal(summary.wrong, 1);
+  assert.equal(summary.missed, 0);
+  assert.equal(summary.largestTimingErrors[0].delta, 150);
+  assert.ok(summary.rhythm < 100);
+  assert.equal(summary.bars[1].mistakes, 2);
+});
+
+test('wait mode requires a coherent chord and excludes unattempted material from partial grades', () => {
+  const notes = [event(0, [60, 64, 67]), event(1, [69])];
+  const take = createTake(notes, 0, 0, null, null, 2, { following: 'wait', groupWindowMs: 80 });
+  perform(take, 1000, 60);
+  perform(take, 1200, 64, 67);
+  advancePerformance(take, 1280);
+  assert.equal(take.cursor, 0);
+  advancePerformance(take, 1300, { finish: true });
+  const summary = summarize(take);
+  assert.deepEqual(summary.results.map(({ status }) => status), ['missed', 'correct', 'correct', 'unattempted']);
+  assert.equal(summary.pitch, 67);
+  assert.equal(summary.timing, null);
+  assert.equal(summary.attempted, 3);
+  assert.equal(summary.expected, 4);
+  assert.equal(completedTakeSummary(take, summary), null);
+});
+
+test('wait mode retains an extra that matches the next written note when it is inside the chord window', () => {
+  const notes = [event(0, [60, 64, 67]), event(0.25, [69])];
+  const take = createTake(notes, 0, 0, null, null, 2, { following: 'wait', groupWindowMs: 120 });
+  perform(take, 1000, 60, 64, 67);
+  assert.equal(perform(take, 1080, 69).type, 'pending');
+  advancePerformance(take, 1120);
+  assert.equal(take.cursor, 1);
+  assert.deepEqual(take.extras.map(({ midi }) => midi), [69]);
+  assert.equal(perform(take, 1160, 69).type, 'matched');
+  assert.equal(summarize(take).pitch, 80);
+});
+
+test('watermark orders separately delivered attacks on opposite sides of a repeated-note boundary', () => {
+  const notes = [event(0, [60]), event(0.5, [60]), event(1, [64])];
+  const take = createTake(notes, 0, 0, 120, 1000, 3, {
+    following: 'continuous', endBeat: 2, reorderAttacks: true,
+  });
+  perform(take, 1240, 60);
+  perform(take, 1030, 60);
+  assert.equal(take.cursor, 0);
+  assert.deepEqual(advancePerformance(take, 1240), { changed: true, previousCursor: 0, cursor: 2 });
+  perform(take, 1500, 64);
+  advancePerformance(take, 1530, { finish: true });
+  assert.deepEqual(summarize(take).results.map(({ at, status }) => [at, status]), [
+    [1030, 'correct'], [1240, 'correct'], [1500, 'correct'],
+  ]);
+});
+
+test('separate attack messages from one sample frame cannot advance two expected events', () => {
+  const notes = [event(0, [60]), event(0.25, [64])];
+  const take = createTake(notes, 0, 0, null, null, 2, { following: 'wait', reorderAttacks: true });
+  perform(take, 1000, 60);
+  perform(take, 1000, 64);
+  advancePerformance(take, 1050);
+  assert.equal(take.cursor, 1);
+  assert.deepEqual(take.extras.map(({ midi }) => midi), [64]);
+  assert.equal(summarize(take).results[1].status, 'unattempted');
+});
+
+test('attack delivered behind the capture watermark makes the timed take unassessable', () => {
+  const notes = [event(0, [60]), event(1, [62])];
+  const take = createTake(notes, 0, 0, 120, 1000, 2, {
+    following: 'continuous', endBeat: 2, reorderAttacks: true,
+  });
+  advancePerformance(take, 1210);
+  assert.equal(perform(take, 1000, 60).type, 'ignored');
+  advancePerformance(take, 2000, { complete: true });
+  assert.equal(summarize(take).unassessable, true);
+  assert.equal(summarize(take).overall, null);
+});
+
+test('unavailable microphone and unconfirmed signal produce no grades', () => {
+  const notes = [event(0, [60]), event(1, [62])];
+  for (const available of [false, true]) {
+    const take = createTake(notes, 0, 0, 120, 1000, 2, { following: 'continuous', endBeat: 2 });
+    updateInputHealth(take, 1000, { available, signal: false });
+    advancePerformance(take, 2000, { complete: true });
+    const summary = summarize(take);
+    assert.equal(summary.pitch, null);
+    assert.equal(summary.overall, null);
+    assert.equal(summary.unassessable, true);
+    assert.equal(summary.unassessed, 2);
+    assert.equal(completedTakeSummary(take, summary), null);
+  }
+});
+
+test('a rejected unstable sound near one note remains neutral while verified silence marks a miss', () => {
+  const notes = [event(0, [60]), event(1, [62]), event(2, [64])];
+  const take = createTake(notes, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 3 });
+  perform(take, 1000, 60);
+  for (const at of [1470, 1495, 1520, 1545]) {
+    updateInputHealth(take, at, { available: true, signal: true, uncertain: true });
+  }
+  advancePerformance(take, 2500, { complete: true });
+  const summary = summarize(take);
+  assert.deepEqual(summary.results.map(({ status }) => status), ['correct', 'unassessable', 'missed']);
+  assert.equal(summary.pitch, 50);
 });

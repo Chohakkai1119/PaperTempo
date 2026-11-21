@@ -267,3 +267,25 @@ test('range limits clip sustaining notes and invalid or silent ranges need no co
   assert.equal(clock.sources.length, 1);
   assert.equal(clock.naturalEnds, 1);
 });
+
+test('chord playback starts every sounding pitch and advances past a sustained voice', async () => {
+  const clock = createClock();
+  const chord = {
+    id: 'chord', beat: 0, duration: 2, page: 1,
+    pitches: [note('C4', 0, 2, 60), note('E4', 0, 1, 64), note('G4', 0, 1, 67)],
+  };
+  const next = note('A4', 1, 1, 69);
+  assert.equal(await clock.playback.play([chord, next], { startBeat: 0, endBeat: 2, bpm: 60 }), true);
+  assert.equal(clock.sources.length, 3);
+  const pitches = [60, 64, 67];
+  for (const [index, source] of clock.sources.entries()) {
+    approximately(source.startAt, 100.04);
+    approximately(scheduledPitch(source), 440 * 2 ** ((pitches[index] - 69) / 12));
+  }
+  clock.advance(100.05);
+  assert.deepEqual(clock.highlights, [chord]);
+  clock.advance(101.05);
+  assert.deepEqual(clock.highlights, [chord, next]);
+  assert.equal(clock.sources.length, 4);
+  approximately(clock.sources[0].stops[0], 102.04);
+});
