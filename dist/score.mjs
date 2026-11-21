@@ -131,7 +131,7 @@ function extractScore(xml) {
   }
   const notes = events;
   if (!notes.length) throw new Error('No playable notes were found in that score.');
-  return { document, rawTitle, bars, events, notes };
+  return { document, rawTitle, bars, events, notes, endBeat: beat };
 }
 
 export async function engrave(xml, { sample = false, name = 'Imported score' } = {}) {
@@ -220,7 +220,34 @@ export function markNote(container, id, status) {
   return note;
 }
 
+export function markResult(container, { note: { id }, kind, detail }, selected) {
+  const note = container.querySelector(`#${CSS.escape(id)}`);
+  if (!note) return;
+  const box = (note.querySelector('.notehead') || note).getBBox();
+  const mark = document.createElementNS(svgNS, 'g');
+  mark.setAttribute('class', `result-mark ${kind}-mark${selected ? ' is-selected' : ''}`);
+  mark.setAttribute('aria-hidden', 'true');
+  const outline = document.createElementNS(svgNS, 'rect');
+  outline.setAttribute('x', box.x - 85);
+  outline.setAttribute('y', box.y - 110);
+  outline.setAttribute('width', box.width + 170);
+  outline.setAttribute('height', box.height + 220);
+  outline.setAttribute('rx', 100);
+  mark.append(outline);
+  if (selected) {
+    const label = document.createElementNS(svgNS, 'text');
+    label.setAttribute('x', box.x + box.width / 2);
+    label.setAttribute('y', box.y - 175);
+    label.setAttribute('text-anchor', 'middle');
+    label.textContent = detail;
+    mark.append(label);
+  }
+  note.append(mark);
+}
+
 export function clearMarks(container) {
-  for (const marker of container.querySelectorAll('.note-focus')) marker.remove();
-  for (const note of container.querySelectorAll('.matched, .expected')) note.classList.remove('matched', 'expected');
+  for (const marker of container.querySelectorAll('.note-focus, .result-mark')) marker.remove();
+  for (const note of container.querySelectorAll('.matched, .expected, .playback, .review-on-time')) {
+    note.classList.remove('matched', 'expected', 'playback', 'review-on-time');
+  }
 }

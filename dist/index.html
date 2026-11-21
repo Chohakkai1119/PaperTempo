@@ -73,6 +73,10 @@
             <button class="button button-subtle" id="load-sample" type="button"><svg><use href="#i-book"/></svg>Load sample</button>
           </div>
         </header>
+        <div class="score-review" id="score-review" hidden>
+          <p id="score-review-detail"></p>
+          <button class="button button-outline" id="practise-mistake" type="button">Practise this bar</button>
+        </div>
         <div class="score-stage">
           <div class="score-paper" id="score-paper" aria-label="Sheet music">
             <div class="paper-heading" id="paper-heading"><p id="paper-title">Morning Lines</p><span id="paper-subtitle">A short study for solo melody</span></div>
@@ -108,8 +112,13 @@
               <div class="field"><label for="end-bar">End after</label><select id="end-bar" disabled><option value="">End of score</option></select></div>
             </div>
             <div class="field"><label for="practice-mode">Practice mode</label><select id="practice-mode"><option value="free">Free tempo</option><option value="timed">Scored tempo</option></select></div>
-            <div class="field bpm-field" id="bpm-field" hidden><label for="bpm">Target tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
+            <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
           </div>
+          <div class="playback-controls">
+            <button class="button button-outline" id="playback-toggle" type="button" disabled>Hear this passage</button>
+            <button class="button button-subtle" id="playback-stop" type="button" disabled>Stop playback</button>
+          </div>
+          <p class="playback-status" id="playback-status" role="status"></p>
           <button class="button listen-button" id="listen" type="button" disabled><svg><use href="#i-mic"/></svg><span>Start listening</span></button>
           <div class="mic-state" role="status"><span class="state-dot" id="mic-dot"></span><span id="mic-status">Microphone off</span><span id="count" class="count" hidden></span></div>
         </section>
@@ -130,8 +139,16 @@
             <span class="icon-tile"><svg><use href="#i-wave"/></svg></span>
             <div><h2 id="results-heading">Practice results</h2><p id="results-summary"></p></div>
           </div>
-          <div class="note-readout" id="result-metrics"></div>
+          <div class="note-readout result-scores" id="result-metrics"></div>
           <p class="result-detail" id="timing-detail" hidden></p>
+          <section class="take-comparison" id="take-comparison" aria-labelledby="comparison-heading" hidden>
+            <h3 id="comparison-heading">Take comparison</h3>
+            <p id="comparison-hint" hidden></p>
+            <table id="comparison-table" hidden>
+              <thead><tr><th scope="col">Metric</th><th scope="col">Previous</th><th scope="col">This take</th></tr></thead>
+              <tbody id="comparison-metrics"></tbody>
+            </table>
+          </section>
           <ul class="result-list" id="result-list"></ul>
           <div class="coach" id="coach" hidden>
             <button class="button button-outline coach-button" id="coach-ask" type="button"><svg><use href="#i-sliders"/></svg><span>What should I practise next?</span></button>
@@ -166,9 +183,10 @@
     <h2 id="help-heading">How it works</h2>
     <ol class="help-steps">
       <li><strong>Open a score.</strong> Use Morning Lines or upload a single-melody MusicXML file.</li>
-      <li><strong>Pick a passage and listen.</strong> Choose a start bar and an optional end bar. Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in.</li>
+      <li><strong>Hear a passage.</strong> Choose the bars and reference tempo, then select Hear this passage to follow the notes across pages.</li>
+      <li><strong>Play it yourself.</strong> Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in and a score based on pitch and rhythm.</li>
       <li><strong>Play across the page break.</strong> PaperTempo previews the next page and turns when you play its first note.</li>
-      <li><strong>Review your take.</strong> Select a result to return to its bar, or choose Practise again to replay the same passage.</li>
+      <li><strong>Review your take.</strong> Select a mistake to see it on the score and practise those bars again. Finish two takes of the same passage at the same tempo to compare them.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>
   </dialog>

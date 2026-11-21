@@ -1,7 +1,7 @@
 // Score following and feedback (dist/practice.mjs) driven by timestamped note-on events.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptNote, createTake, summarize, TIMING_TOLERANCE, MIN_TIMED_MATCHES } from '../dist/practice.mjs';
+import { acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, summarize, timingTolerance } from '../dist/practice.mjs';
 import { sampleNotes, midi } from './helpers.mjs';
 
 const notes = sampleNotes();
@@ -13,7 +13,6 @@ test('sample matches the demo script: 18 bars, Bar 9 = E4 D4 C4, page 2 opens on
   const first2 = notes.find((n) => n.page === 2);
   assert.equal(first2.bar, '10');
   assert.equal(first2.midi, midi('G4'));
-  assert.equal(TIMING_TOLERANCE, 120);
   assert.equal(MIN_TIMED_MATCHES, 3);
 });
 
@@ -58,7 +57,7 @@ test('scored tempo: a late note and a wrong pitch show up at their bars', () => 
   // Bar 9: E4 D4 C4(half) | Bar 10: G4 A4 G4 E4
   const plays = [['E4', 0, 0], ['D4', 1, 0], ['C4', 2, 260], ['G4', 4, 0], ['F#4', 5, 0], ['A4', 5, 20], ['G4', 6, 0], ['E4', 7, -40]];
   for (const [n, beat, off] of plays) acceptNote(take, midi(n), downbeat + beat * beatMs + off);
-  const late = take.matched.find((m) => m.delta > TIMING_TOLERANCE);
+  const late = take.matched.find((m) => m.delta > timingTolerance(bpm));
   assert.equal(late.note.bar, '9');
   assert.equal(Math.round(late.delta), 260);
   assert.equal(take.extras.length, 1);
@@ -76,6 +75,8 @@ test('timing needs at least three matched notes', () => {
   acceptNote(take, midi('D4'), 5750);
   const s = summarize(take);
   assert.equal(s.timing, null);
+  assert.equal(s.rhythm, null);
+  assert.equal(s.overall, null);
   assert.equal(s.enoughTiming, false);
 });
 
@@ -91,4 +92,74 @@ test('free tempo has pitch only', () => {
   const s = summarize(take);
   assert.equal(s.pitch, 100);
   assert.equal(s.timing, null);
+  assert.equal(s.rhythm, null);
+  assert.equal(s.overall, null);
+});
+
+test('timing window scales with tempo and clamps at both ends', () => {
+  assert.equal(timingTolerance(60), 140);
+  assert.equal(timingTolerance(100), 120);
+  assert.equal(timingTolerance(120), 100);
+  assert.equal(timingTolerance(180), 70);
+  const takeSummary = (bpm) => {
+    const take = createTake(notes, 0, 0, bpm, 0, 3);
+    for (const note of notes.slice(0, 3)) {
+      acceptNote(take, note.midi, note.beat * 60_000 / bpm + 120);
+    }
+    return summarize(take);
+  };
+  assert.equal(takeSummary(60).timing, 100);
+  assert.equal(takeSummary(60).rhythm, 57);
+  assert.equal(takeSummary(180).timing, 0);
+  assert.equal(takeSummary(180).rhythm, 14);
+});
+
+test('identical pitches lose rhythm credit with onset error, down to zero for a very late note', () => {
+  const take = createTake(notes, 0, 0, 120, 1000, 3);
+  for (const [index, offset] of [[0, 0], [1, -100], [2, 300]]) {
+    const note = notes[index];
+    acceptNote(take, note.midi, 1000 + note.beat * 500 + offset);
+  }
+  assert.deepEqual(summarize(take), {
+    attempted: 3, pitch: 100, timing: 67, rhythm: 50, overall: 80, enoughTiming: true,
+  });
+});
+
+test('a missed note counts in both scores and the completed take retains the new metrics', () => {
+  const start = barStart('9');
+  const take = {
+    ...createTake(notes, start, notes[start].beat, 120, 1000, start + 7),
+    startBar: 8,
+    endBar: '9',
+  };
+  for (const [index, note] of notes.slice(start, start + 7).entries()) {
+    if (index === 1) continue;
+    const offset = index === 2 ? 100 : 0;
+    acceptNote(take, note.midi, 1000 + (note.beat - take.startBeat) * 500 + offset);
+  }
+  const summary = summarize(take);
+  assert.deepEqual(summary, { attempted: 7, pitch: 86, timing: 100, rhythm: 79, overall: 83, enoughTiming: true });
+  const completed = completedTakeSummary(take, summary);
+  assert.equal(completed.rhythm, 79);
+  assert.equal(completed.overall, 83);
+  assert.equal(completed.missed, 1);
+});
+
+test('overall accuracy weights the underlying scores before rounding', () => {
+  const melody = Array.from({ length: 6 }, (_, index) => ({ midi: 60 + index, beat: index }));
+  const take = createTake(melody, 0, 0, 120, 1000);
+  for (const index of [0, 2, 4, 5]) {
+    acceptNote(take, melody[index].midi, 1000 + index * 500 + (index === 5 ? 36 : 0));
+  }
+  const { pitch, rhythm, overall } = summarize(take);
+  assert.deepEqual({ pitch, rhythm, overall }, { pitch: 67, rhythm: 64, overall: 65 });
+});
+
+test('partial take scores only attempted notes and cannot become a comparison baseline', () => {
+  const take = createTake(notes, 0, 0, 120, 1000, 7);
+  for (const note of notes.slice(0, 3)) acceptNote(take, note.midi, 1000 + note.beat * 500);
+  acceptNote(take, midi('F#4'), 1000 + notes[3].beat * 500);
+  const summary = summarize(take);
+  assert.deepEqual(summary, { attempted: 4, pitch: 75, timing: 100, rhythm: 75, overall: 75, enoughTiming: true });
+  assert.equal(completedTakeSummary(take, summary), null);
 });
