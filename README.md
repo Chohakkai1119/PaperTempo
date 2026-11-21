@@ -1,4 +1,4 @@
-# KCL-First-Year-Hack
-Team repo for Daiki, Diart &amp; Yu.
+# PaperTempo
+KCL FirstYearHack Team repository for Daiki, Diart &amp; Yu.
 
 test
