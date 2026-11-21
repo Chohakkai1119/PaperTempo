@@ -1,11 +1,11 @@
 import { clearMarks, engrave, markNote, markResult, midiName, musicXMLFromFile, notationElement } from './score.mjs';
-import { openMicrophone, scheduleCountIn } from './audio.mjs';
+import { FOLLOW_COUNT_IN, countdownNumber, openMicrophone, scheduleCountIn } from './audio.mjs';
 import { INSTRUMENTS } from './instruments.mjs';
 import { createPlayback, InstrumentSampleError } from './playback.mjs';
 import { VISIBLE_ROWS, clampWindowTop, windowRows, windowTopForRow } from './rows.mjs';
 import {
   acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, mistakePassage,
-  samePracticePassage, summarize, timingTolerance,
+  restartSettings, samePracticePassage, summarize, timingTolerance,
 } from './practice.mjs';
 
 const byId = (id) => document.getElementById(id);
@@ -19,7 +19,10 @@ const state = {
   countIn: null, lastSignal: 0, pdfURL: null, musicXMLURL: null, loading: 0, completed: false,
   review: null, completedTakes: [], playbackRun: null,
   viewTop: 0, positionRow: null, rowBounds: null, rowWindowShown: false,
+  lastTakeSettings: null,
 };
+// Detections this long before the count-in downbeat are ignored (the clicks themselves).
+const COUNT_IN_GRACE_MS = 140;
 const notation = byId('notation');
 const preview = byId('preview-notation');
 const barSelect = byId('start-bar');
@@ -32,6 +35,10 @@ const listen = byId('listen');
 const playbackToggle = byId('playback-toggle');
 const playbackStop = byId('playback-stop');
 const retry = byId('retry');
+const restartTakeButton = byId('restart-take');
+const countInToggle = byId('count-in');
+const scorePanel = document.querySelector('.score-panel');
+const fullscreenButton = byId('fullscreen-toggle');
 const practiseMistake = byId('practise-mistake');
 const scoreFile = byId('score-file');
 const uploadDialog = byId('upload-dialog');
@@ -249,6 +256,15 @@ function refreshPracticeControls() {
   instrumentSelect.disabled = Boolean(run);
   modeSelect.disabled = Boolean(run);
   retry.disabled = Boolean(run);
+  // In full screen the side panel (with Start listening) is out of view, so this button
+  // also starts the first take there; otherwise it appears once a take has run.
+  const inFullscreen = (document.fullscreenElement || document.webkitFullscreenElement) === scorePanel;
+  const hasTake = live || Boolean(state.lastTakeSettings);
+  restartTakeButton.hidden = !(hasTake || inFullscreen);
+  restartTakeButton.querySelector('span').textContent = hasTake ? 'Restart' : 'Start';
+  restartTakeButton.title = hasTake ? 'Restart this take (R)' : 'Start listening (R)';
+  restartTakeButton.disabled = state.opening || Boolean(run);
+  countInToggle.disabled = live;
   playbackToggle.disabled = !state.score || live || state.opening || run?.status === 'starting';
   playbackStop.disabled = !run;
   text('playback-toggle', run?.status === 'paused' ? 'Resume playback'
@@ -436,7 +452,7 @@ function showResults(take, cancelled) {
     return row;
   }));
   showComparison(cancelled ? null : completedTakeSummary(take, summary));
-  retry.onclick = () => practise(take);
+  retry.onclick = () => restartTake();
   setupCoach(take, cancelled);
 }
 
@@ -538,6 +554,52 @@ function setupCoach(take, cancelled) {
   };
 }
 
+// ---- Count-in overlay, Restart and full screen.
+
+function showCountdown(number) {
+  const overlay = byId('countdown');
+  overlay.hidden = number === null;
+  if (number !== null) text('countdown-number', String(number));
+}
+
+/**
+ * Restart: discard the running take (or reuse the last take's settings) and go straight
+ * back into the count-in with the same start bar, end bar, mode and tempo.
+ */
+async function restartTake() {
+  if (!state.score || state.opening || state.playbackRun) return;
+  const settings = state.take ? restartSettings(state.take) : state.lastTakeSettings;
+  if (state.mic) stopListening({ report: false });
+  if (!settings) return void startListening();
+  await practise(settings);
+}
+
+const fullscreen = (() => {
+  if (document.fullscreenEnabled && scorePanel.requestFullscreen) {
+    return {
+      enter: () => scorePanel.requestFullscreen().catch(() => {}),
+      exit: () => document.exitFullscreen().catch(() => {}),
+      element: () => document.fullscreenElement,
+      event: 'fullscreenchange',
+    };
+  }
+  if (document.webkitFullscreenEnabled && scorePanel.webkitRequestFullscreen) {
+    return {
+      enter: () => scorePanel.webkitRequestFullscreen(),
+      exit: () => document.webkitExitFullscreen(),
+      element: () => document.webkitFullscreenElement,
+      event: 'webkitfullscreenchange',
+    };
+  }
+  return null; // e.g. iPhone Safari: the button stays hidden
+})();
+
+function toggleFullscreen() {
+  if (!fullscreen) return;
+  if (fullscreen.element()) fullscreen.exit();
+  else fullscreen.enter();
+}
+
 function stopListening({ report = true, complete = false } = {}) {
   const take = state.take;
   const cancelled = Boolean(state.countIn && performance.now() < state.countIn.downbeat);
@@ -551,6 +613,7 @@ function stopListening({ report = true, complete = false } = {}) {
   }
   if (take) updateEndBars(complete ? take.startIndex : state.index);
   byId('count').hidden = true;
+  showCountdown(null);
   refreshPracticeControls();
   micLabel(complete ? 'Passage complete' : 'Microphone off');
   text('detected-note', '—');
@@ -593,12 +656,14 @@ function goToPage(delta) {
 
 function signalUpdate(pitch, level) {
   const now = performance.now();
-  const count = state.countIn;
-  if (count && now < count.downbeat) {
-    text('count', String(Math.max(1, Math.min(4, Math.floor((now - count.start) / count.beatMs) + 1))));
+  const number = countdownNumber(state.countIn, now);
+  if (number !== null) {
+    text('count', String(number));
+    showCountdown(number);
     return;
   }
   byId('count').hidden = true;
+  showCountdown(null);
   if (pitch) {
     state.lastSignal = now;
     text('detected-note', midiName(pitch.midi));
@@ -612,6 +677,8 @@ function signalUpdate(pitch, level) {
 function receiveNote({ midi, at }) {
   const take = state.take;
   if (!take) return;
+  // Ignore the count-in clicks (Scored tempo also guards this inside acceptNote).
+  if (state.countIn && at < state.countIn.downbeat - COUNT_IN_GRACE_MS) return;
   const result = acceptNote(take, midi, at);
   if (result.type !== 'matched') return;
   state.matched = result.note;
@@ -657,15 +724,21 @@ async function startListening() {
     const firstBeyondEnd = endBar === '' ? -1 : score.notes.findIndex((note) => note.measure > Number(endBar));
     const endIndex = firstBeyondEnd === -1 ? score.notes.length : firstBeyondEnd;
     const startBeat = firstOfBar ? startBar.beat : current.beat;
-    state.countIn = bpm ? scheduleCountIn(mic.context, bpm) : null;
+    // Scored tempo counts in 4 beats at the target tempo; Follow (free tempo) uses a short
+    // fixed count-in. With the count-in off, Scored tempo anchors timing on the first note.
+    const countIn = !countInToggle.checked ? null : bpm ? { bpm, beats: 4 } : FOLLOW_COUNT_IN;
+    state.countIn = countIn ? scheduleCountIn(mic.context, countIn.bpm, countIn.beats) : null;
+    const downbeat = bpm ? state.countIn?.downbeat ?? null : null;
     state.take = {
-      ...createTake(score.notes, state.index, startBeat, bpm, state.countIn?.downbeat ?? null, endIndex),
+      ...createTake(score.notes, state.index, startBeat, bpm, downbeat, endIndex),
       startBar: startBar.index,
       endBar,
     };
+    state.lastTakeSettings = restartSettings(state.take);
     state.lastSignal = 0;
-    byId('count').hidden = !bpm;
-    micLabel(bpm ? 'Count-in · get ready' : 'Listening · waiting for a note', 'active');
+    byId('count').hidden = !state.countIn;
+    showCountdown(countdownNumber(state.countIn, performance.now()));
+    micLabel(state.countIn ? 'Count-in · get ready' : 'Listening · waiting for a note', 'active');
     mic.monitor(signalUpdate, receiveNote);
   } catch (error) {
     const message = {
@@ -690,6 +763,7 @@ function mount(score, pdf = null, convertedXML = null) {
   state.score = score;
   state.review = null;
   state.completedTakes = [];
+  state.lastTakeSettings = null;
   state.shownPage = null;
   state.shownPreview = null;
   if (state.pdfURL) URL.revokeObjectURL(state.pdfURL);
@@ -707,8 +781,6 @@ function mount(score, pdf = null, convertedXML = null) {
   if (convertedXML) musicXMLLink.download = `${score.title || 'score'}.musicxml`;
   const label = score.sample ? 'Sample score' : 'Imported score';
   text('score-heading', score.title);
-  text('paper-title', score.title);
-  text('paper-subtitle', score.sample ? 'A short study for solo melody' : '');
   const count = score.rowCount;
   text('score-meta', `${label} · ${count} ${count === 1 ? 'row' : 'rows'}`);
   const lastBar = score.notes.at(-1).measure;
@@ -830,6 +902,30 @@ notation.addEventListener('click', (event) => {
   }
   const index = state.score.notes.findIndex((note) => note.id === id);
   if (index >= 0) jumpToIndex(index);
+});
+restartTakeButton.addEventListener('click', () => void restartTake());
+fullscreenButton.hidden = !fullscreen;
+fullscreenButton.addEventListener('click', toggleFullscreen);
+if (fullscreen) {
+  document.addEventListener(fullscreen.event, () => {
+    const on = fullscreen.element() === scorePanel;
+    fullscreenButton.querySelector('span').textContent = on ? 'Exit full screen' : 'Full screen';
+    fullscreenButton.setAttribute('aria-pressed', String(on));
+    refreshPracticeControls();
+  });
+}
+document.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target.closest?.('input, select, textarea, [contenteditable="true"]')) return;
+  if (document.querySelector('dialog[open]')) return;
+  const key = event.key.toLowerCase();
+  if (key === 'r') {
+    event.preventDefault();
+    void restartTake();
+  } else if (key === 'f' && fullscreen) {
+    event.preventDefault();
+    toggleFullscreen();
+  }
 });
 window.addEventListener('pagehide', () => {
   stopPlayback();
