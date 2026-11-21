@@ -165,7 +165,7 @@ test('cortexConfig needs all three env vars and builds the Snowflake URL', () =>
   assert.equal(cortexConfig({ ...ENV, SNOWFLAKE_ACCOUNT: 'MyOrg_MyAccount' }).url, 'https://myorg-myaccount.snowflakecomputing.com/api/v2/cortex/v1/chat/completions');
 });
 
-test('Cortex request: headers, model, low max_tokens, target bar in the prompt', async () => {
+test('Cortex request: headers, model, low max_completion_tokens, target bar in the prompt', async () => {
   let call;
   const fetchImpl = async (url, init) => {
     call = { url, init, body: JSON.parse(init.body) };
@@ -181,11 +181,45 @@ test('Cortex request: headers, model, low max_tokens, target bar in the prompt',
   assert.equal(call.init.headers['Content-Type'], 'application/json');
   assert.ok(call.init.signal instanceof AbortSignal);
   assert.equal(call.body.model, 'claude-haiku-4-5');
-  assert.ok(call.body.max_tokens > 0 && call.body.max_tokens <= 200);
+  assert.equal(call.body.max_completion_tokens, 120);
+  assert.equal('max_tokens' in call.body, false); // deprecated: Cortex answers 400
+  assert.equal(call.body.temperature, 0.3);
   assert.equal(call.body.messages[0].role, 'system');
   assert.match(call.body.messages[0].content, /concise music practice coach/);
   assert.match(call.body.messages[1].content, /Target bar: 10\n/);
   assert.match(call.body.messages[1].content, /401, 269, 10/);
+});
+
+test('Cortex rejects temperature → one retry without it succeeds', async () => {
+  const bodies = [];
+  const log = quietLog();
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    if ('temperature' in body) return new Response(JSON.stringify({ message: 'temperature is not supported for this model' }), { status: 400 });
+    return completion('Play bar 10 at half tempo three times.');
+  };
+  const handler = createDrillHandler({ env: ENV, fetchImpl, log });
+  const data = await (await handler(post(BODY))).json();
+  assert.equal(data.source, 'cortex');
+  assert.equal(bodies.length, 2);
+  assert.equal('temperature' in bodies[1], false);
+  assert.equal(bodies[1].max_completion_tokens, 120);
+  assert.match(log.lines.find(([level]) => level === 'warn')[1], /rejected temperature/);
+});
+
+test('Cortex 400 about anything else → no retry, fallback with the message logged', async () => {
+  let calls = 0;
+  const log = quietLog();
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ message: 'max_tokens is deprecated in favor of max_completion_tokens' }), { status: 400 });
+  };
+  const handler = createDrillHandler({ env: ENV, fetchImpl, log });
+  const data = await (await handler(post(BODY))).json();
+  assert.equal(data.source, 'fallback');
+  assert.equal(calls, 1);
+  assert.match(log.lines.at(-1)[1], /status=400 message=max_tokens is deprecated in favor of max_completion_tokens/);
 });
 
 test('cleanDrill handles content-part arrays and empty output', () => {
