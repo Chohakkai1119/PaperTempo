@@ -36,19 +36,38 @@ function extractScore(xml) {
   const root = document.documentElement;
   if (root.localName !== 'score-partwise') throw new Error('Export your score as partwise MusicXML.');
   const parts = [...root.children].filter((element) => element.localName === 'part');
-  if (parts.length !== 1 || root.querySelector('chord, backup, grace, unpitched, repeat')) {
-    throw new Error('Choose a single melody line without chords, overlapping voices, grace notes or repeats.');
-  }
+  if (!parts.length) throw new Error('This score does not contain a part.');
   const rawTitle = root.querySelector('work-title')?.textContent.trim() || root.querySelector('movement-title')?.textContent.trim();
   const bars = [];
   const events = [];
+  const sourceIds = new WeakMap();
+  let nextSourceId = 1;
   let divisions = 1;
   let beat = 0;
   let transpose = 0;
 
-  for (const measure of [...parts[0].children].filter((element) => element.localName === 'measure')) {
-    const bar = { label: measure.getAttribute('number') || String(bars.length + 1), beat, index: bars.length };
+  // Build a single-pitch practice line from each source measure. Chords resolve to
+  // their highest pitch; simultaneous/overlapping material is reduced to the
+  // highest note at each onset. Grace notes and unpitched percussion are omitted.
+  const sourceMeasures = [...parts[0].children].filter((element) => element.localName === 'measure');
+  let expandedMeasures = [];
+  let repeatStart = 0;
+  for (let i = 0; i < sourceMeasures.length; i++) {
+    const measure = sourceMeasures[i];
+    if ([...measure.querySelectorAll('barline repeat[direction="forward"]')].length) repeatStart = i;
+    expandedMeasures.push(measure);
+    if ([...measure.querySelectorAll('barline repeat[direction="backward"]')].length) {
+      expandedMeasures.push(...sourceMeasures.slice(repeatStart, i + 1));
+    }
+  }
+
+  for (const measure of expandedMeasures) {
+    const barIndex = bars.length;
+    const bar = { label: measure.getAttribute('number') || String(barIndex + 1), beat, index: barIndex };
     bars.push(bar);
+    const candidates = [];
+    let cursor = 0;
+    let previousOnset = 0;
     for (const element of measure.children) {
       if (element.localName === 'attributes') {
         const nextDivisions = Number(element.querySelector('divisions')?.textContent);
@@ -62,35 +81,57 @@ function extractScore(xml) {
           }
         }
       }
-      if (!['note', 'forward'].includes(element.localName)) continue;
-      const duration = Number(element.querySelector('duration')?.textContent) / divisions;
-      if (!Number.isFinite(duration) || duration <= 0) throw new Error('A note or rest is missing a valid duration.');
-      const id = `pt-note-${events.length + 1}`;
-      const event = { id, measure: bar.index, beat, duration, midi: null, tied: false };
-      if (element.localName === 'note') {
-        element.removeAttributeNS('http://www.w3.org/XML/1998/namespace', 'id');
-        element.setAttribute('id', id);
-        const pitch = element.querySelector('pitch');
-        if (pitch) {
-          const step = pitch.querySelector('step')?.textContent;
-          const octaveValue = pitch.querySelector('octave')?.textContent;
-          const alter = Number(pitch.querySelector('alter')?.textContent || 0);
-          event.midi = (Number(octaveValue) + 1) * 12 + pitchClasses[step] + alter + transpose;
-          if (!octaveValue || !Number.isInteger(event.midi) || event.midi < 0 || event.midi > 127) {
-            throw new Error('This score contains an unsupported pitch.');
-          }
-          event.tied = Boolean(element.querySelector('tie[type="stop"], tied[type="stop"]'));
-        } else if (!element.querySelector('rest')) {
-          throw new Error('This score contains a note without a pitch.');
-        }
+      if (element.localName === 'backup') {
+        cursor -= Number(element.querySelector('duration')?.textContent || 0) / divisions;
+        continue;
       }
-      events.push(event);
-      beat += duration;
+      if (element.localName === 'forward') {
+        cursor += Number(element.querySelector('duration')?.textContent || 0) / divisions;
+        continue;
+      }
+      if (element.localName !== 'note') continue;
+      const duration = Number(element.querySelector('duration')?.textContent || 0) / divisions;
+      if (element.querySelector('grace')) continue;
+      const onset = element.querySelector('chord') ? previousOnset : cursor;
+      if (!element.querySelector('chord')) previousOnset = onset;
+      const pitch = element.querySelector('pitch');
+      if (pitch) {
+        const step = pitch.querySelector('step')?.textContent;
+        const octaveValue = Number(pitch.querySelector('octave')?.textContent);
+        const alter = Number(pitch.querySelector('alter')?.textContent || 0);
+        const midi = (octaveValue + 1) * 12 + pitchClasses[step] + alter + transpose;
+        if (!Number.isInteger(midi) || midi < 0 || midi > 127) throw new Error('This score contains an unsupported pitch.');
+        const tied = Boolean(element.querySelector('tie[type="stop"], tied[type="stop"]'));
+        if (!tied && duration > 0) candidates.push({ onset, duration, midi, source: element });
+      }
+      if (!element.querySelector('chord')) cursor += duration;
     }
+    candidates.sort((a, b) => a.onset - b.onset || b.midi - a.midi);
+    const selected = [];
+    for (const candidate of candidates) {
+      const last = selected.at(-1);
+      if (last && Math.abs(candidate.onset - last.onset) < 1e-8) continue;
+      selected.push(candidate);
+    }
+    const measureLength = Math.max(cursor, ...candidates.map((item) => item.onset + item.duration), 0);
+    for (let i = 0; i < selected.length; i++) {
+      const item = selected[i];
+      const duration = Math.min(item.duration, (selected[i + 1]?.onset ?? measureLength) - item.onset);
+      if (duration <= 0) continue;
+      let id = sourceIds.get(item.source);
+      if (!id) {
+        id = `pt-note-${nextSourceId++}`;
+        sourceIds.set(item.source, id);
+        item.source.setAttribute('id', id);
+      }
+      const event = { id, measure: bar.index, beat: beat + item.onset, duration, midi: item.midi, tied: false };
+      events.push(event);
+    }
+    beat += measureLength;
   }
-  const notes = events.filter((event) => event.midi !== null && !event.tied);
+  const notes = events;
   if (!notes.length) throw new Error('No playable notes were found in that score.');
-  return { document, rawTitle, bars, events, notes };
+  return { document, rawTitle, bars, events, notes, endBeat: beat };
 }
 
 export async function engrave(xml, { sample = false, name = 'Imported score' } = {}) {
@@ -107,9 +148,11 @@ export async function engrave(xml, { sample = false, name = 'Imported score' } =
   const toolkit = new VerovioToolkit(module);
   try {
     toolkit.setOptions({
-      pageWidth: 1600, pageHeight: 840, adjustPageHeight: true,
+      // One continuous, very tall page: the app shows it through a scrolling 4-row window.
+      // 'line' keeps the score's own row (system) breaks but ignores its page breaks.
+      pageWidth: 1600, pageHeight: 60000, adjustPageHeight: true,
       pageMarginLeft: 37, pageMarginRight: 37, pageMarginTop: 22, pageMarginBottom: 15,
-      spacingSystem: 9, breaks: sample || data.document.querySelector('print[new-page="yes"]') ? 'encoded' : 'auto',
+      spacingSystem: 9, breaks: sample || data.document.querySelector('print[new-page="yes"]') ? 'line' : 'auto',
       header: 'none', footer: 'none', svgViewBox: true, mnumInterval: 1,
     });
     if (!toolkit.loadData(new XMLSerializer().serializeToString(data.document.documentElement))) {
@@ -120,7 +163,25 @@ export async function engrave(xml, { sample = false, name = 'Imported score' } =
     const pages = Array.from({ length: totalPages }, (_, i) => toolkit.renderToSVG(i + 1));
     for (const event of data.events) event.page = toolkit.getPageWithElement(event.id) || null;
     if (data.notes.some((note) => !note.page)) throw new Error('The notes could not be located on the engraved pages.');
-    return { ...data, pages, title: data.rawTitle || name, sample };
+
+    // Rows (systems), numbered across the whole score, and the row of every note and rest.
+    const rowById = new Map();
+    const pageRows = [];
+    let rowCount = 0;
+    for (const markup of pages) {
+      const systems = new DOMParser().parseFromString(markup, 'image/svg+xml').querySelectorAll('g.system');
+      systems.forEach((system, i) => {
+        for (const element of system.querySelectorAll('[id]')) rowById.set(element.id, rowCount + i);
+      });
+      pageRows.push({ first: rowCount, count: systems.length });
+      rowCount += systems.length;
+    }
+    let lastRow = 0;
+    for (const event of data.events) {
+      event.row = rowById.get(event.id) ?? lastRow;
+      lastRow = event.row;
+    }
+    return { ...data, pages, pageRows, rowCount, title: data.rawTitle || name, sample };
   } finally {
     toolkit.destroy();
   }
@@ -179,7 +240,34 @@ export function markNote(container, id, status) {
   return note;
 }
 
+export function markResult(container, { note: { id }, kind, detail }, selected) {
+  const note = container.querySelector(`#${CSS.escape(id)}`);
+  if (!note) return;
+  const box = (note.querySelector('.notehead') || note).getBBox();
+  const mark = document.createElementNS(svgNS, 'g');
+  mark.setAttribute('class', `result-mark ${kind}-mark${selected ? ' is-selected' : ''}`);
+  mark.setAttribute('aria-hidden', 'true');
+  const outline = document.createElementNS(svgNS, 'rect');
+  outline.setAttribute('x', box.x - 85);
+  outline.setAttribute('y', box.y - 110);
+  outline.setAttribute('width', box.width + 170);
+  outline.setAttribute('height', box.height + 220);
+  outline.setAttribute('rx', 100);
+  mark.append(outline);
+  if (selected) {
+    const label = document.createElementNS(svgNS, 'text');
+    label.setAttribute('x', box.x + box.width / 2);
+    label.setAttribute('y', box.y - 175);
+    label.setAttribute('text-anchor', 'middle');
+    label.textContent = detail;
+    mark.append(label);
+  }
+  note.append(mark);
+}
+
 export function clearMarks(container) {
-  for (const marker of container.querySelectorAll('.note-focus')) marker.remove();
-  for (const note of container.querySelectorAll('.matched, .expected')) note.classList.remove('matched', 'expected');
+  for (const marker of container.querySelectorAll('.note-focus, .result-mark')) marker.remove();
+  for (const note of container.querySelectorAll('.matched, .expected, .playback, .review-on-time')) {
+    note.classList.remove('matched', 'expected', 'playback', 'review-on-time');
+  }
 }
