@@ -22,3 +22,7 @@ Use single-part, single-voice partwise MusicXML (`.musicxml`, `.xml`, or compres
 For a clean printed PDF, export the score as MusicXML with an optical music recognition tool such as Audiveris. Check the converted notes against the PDF before practising. Select the PDF and MusicXML together to open both from the score viewer. Audiveris is optional and runs separately from the website.
 
 Vendor files are bundled with the site. Verovio 6.4.1 is available from https://github.com/rism-digital/verovio/tree/version-6.4.1. The fonts and fflate include their licenses alongside the distributed files.
+
+## Hackathon materials
+
+Find the student guide, event slides, and project planning notes in [guides/](guides/).
