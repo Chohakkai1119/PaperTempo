@@ -115,7 +115,18 @@
               <div class="field"><label for="start-bar">Start at</label><select id="start-bar"><option>Bar 1</option></select></div>
               <div class="field"><label for="end-bar">End after</label><select id="end-bar" disabled><option value="">End of score</option></select></div>
             </div>
-            <div class="field"><label for="practice-mode">Practice mode</label><select id="practice-mode"><option value="free">Free tempo</option><option value="timed">Scored tempo</option></select></div>
+            <div class="field">
+              <label for="following-mode">Score following</label>
+              <select id="following-mode">
+                <option value="continuous">Keep going</option>
+                <option value="wait">Wait for the right note</option>
+              </select>
+              <p class="field-hint" id="following-hint">The cursor moves at the reference tempo.</p>
+            </div>
+            <div class="field" id="wait-scoring" hidden>
+              <label for="practice-mode">Timing in wait mode</label>
+              <select id="practice-mode"><option value="timed">Scored tempo</option><option value="free">Free tempo</option></select>
+            </div>
             <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Clicks and a countdown before listening starts</small></label>
             <div class="playback-fields">
               <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
@@ -139,6 +150,7 @@
             <span class="icon-tile"><svg><use href="#i-wave"/></svg></span>
             <div><h2 id="live-heading">Live tracking</h2><p id="position">Bar 1 · Page 1</p></div>
           </div>
+          <progress class="passage-progress" id="passage-progress" aria-label="Progress through the passage" max="1" value="0" hidden></progress>
           <div class="note-readout">
             <div><span>Expected</span><strong id="expected-note">C4</strong></div>
             <div><span>Detected</span><strong id="detected-note">—</strong></div>
@@ -195,8 +207,7 @@
     <ol class="help-steps">
       <li><strong>Open a score.</strong> Use Morning Lines or upload a single-melody MusicXML file.</li>
       <li><strong>Hear a passage.</strong> Choose the bars, reference tempo, and playback instrument. Select Hear this passage to follow the highlighted notes.</li>
-      <li><strong>Play it yourself.</strong> Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in and a score based on pitch and rhythm.</li>
-      <li><strong>Follow the score.</strong> The score window moves as you play so you can see the upcoming rows.</li>
+      <li><strong>Play it yourself.</strong> Keep going follows the reference tempo and grades the passage at the end. Choose Wait for the right note to advance only when you play the expected pitch.</li>
       <li><strong>Review your take.</strong> Select a mistake to see it on the score and practise those bars again. Finish two takes of the same passage at the same tempo to compare them.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>

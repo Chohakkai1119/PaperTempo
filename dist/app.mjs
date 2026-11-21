@@ -4,9 +4,11 @@ import { INSTRUMENTS } from './instruments.mjs';
 import { createPlayback, InstrumentSampleError } from './playback.mjs';
 import { VISIBLE_ROWS, clampWindowTop, windowRows, windowTopForRow } from './rows.mjs';
 import {
-  acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, mistakePassage,
+  acceptNote, completedTakeSummary, createTake, finalizeContinuousTake, mistakePassage,
   restartSettings, samePracticePassage, summarize, timingTolerance,
 } from './practice.mjs';
+
+const DETECTION_GRACE_MS = 90;
 
 const byId = (id) => document.getElementById(id);
 const text = (id, value) => {
@@ -17,7 +19,7 @@ const state = {
   score: null, index: 0, page: 1, shownPage: null, shownPreview: null,
   matched: null, matchTimer: null, mic: null, opening: false, take: null,
   countIn: null, lastSignal: 0, pdfURL: null, musicXMLURL: null, loading: 0, completed: false,
-  review: null, completedTakes: [], playbackRun: null,
+  review: null, completedTakes: [], playbackRun: null, clockPosition: null,
   viewTop: 0, positionRow: null, rowBounds: null, rowWindowShown: false,
   lastTakeSettings: null,
 };
@@ -28,6 +30,8 @@ const preview = byId('preview-notation');
 const barSelect = byId('start-bar');
 const endBarSelect = byId('end-bar');
 const modeSelect = byId('practice-mode');
+const followingSelect = byId('following-mode');
+const passageProgress = byId('passage-progress');
 const bpmField = byId('bpm');
 const instrumentSelect = byId('playback-instrument');
 instrumentSelect.replaceChildren(...Object.entries(INSTRUMENTS).map(([id, { label }]) => new Option(label, id)));
@@ -120,7 +124,7 @@ function applyRowWindow() {
 
 /** Scroll the window by whole rows; past either end, move to the neighbouring page (long scores). */
 function scrollRows(delta) {
-  if (!state.score || state.playbackRun) return;
+  if (!state.score || state.playbackRun || state.clockPosition) return;
   const { count } = pageRowInfo();
   const top = state.viewTop + delta;
   if (top !== clampWindowTop(top, count)) return void goToPage(delta);
@@ -182,7 +186,7 @@ function refreshReview() {
   }
   const { startBar, endBar } = mistakePassage(review.take, selected.note.measure);
   const { bars } = state.score;
-  text('score-review-detail', `${barLabel(selected.note.measure)} · ${midiName(selected.note.midi)} · ${selected.detail}`);
+  text('score-review-detail', `${barLabel(selected.note.measure)} · ${selected.name ?? midiName(selected.note.midi)} · ${selected.detail}`);
   text('practise-mistake', startBar === endBar
     ? `Practise bar ${bars[startBar].label}`
     : `Practise bars ${bars[startBar].label}–${bars[endBar].label}`);
@@ -192,9 +196,10 @@ function refreshScore() {
   if (!state.score) return;
   const { notes, pages } = state.score;
   const run = state.playbackRun;
+  const clock = state.clockPosition;
   const next = state.completed ? null : notes[state.index];
   const position = run?.position || next || notes[state.index - 1];
-  const highlighted = run ? run.note : next;
+  const highlighted = run ? run.note : !clock || clock.noteActive ? next : null;
   loadPageMarkup();
   clearMarks(notation);
   if (!run && state.matched?.page === state.page) markNote(notation, state.matched.id, 'matched');
@@ -219,10 +224,12 @@ function refreshScore() {
     ? `${state.score.rowCount} ${state.score.rowCount === 1 ? 'row' : 'rows'}`
     : `Rows ${rowInfo.first + first + 1}–${rowInfo.first + last + 1} of ${state.score.rowCount}`;
   text('page-label', pages.length > 1 ? `${rowsText} · Page ${state.page} of ${pages.length}` : rowsText);
-  text('position', `${barLabel(position.measure)} · Row ${position.row + 1}`);
-  text('expected-note', !run && next ? midiName(next.midi) : '—');
-  byId('prev-page').disabled = (state.viewTop <= 0 && state.page <= 1) || Boolean(run);
-  byId('next-page').disabled = (state.viewTop >= clampWindowTop(Infinity, rowInfo.count) && state.page >= pages.length) || Boolean(run);
+  const beat = clock ? ` · Beat ${clock.beatInBar}` : '';
+  text('position', `${barLabel(clock?.measure ?? position.measure)}${beat} · Row ${position.row + 1}`);
+  text('expected-note', run ? '—' : highlighted ? midiName(highlighted.midi) : clock ? 'Rest' : '—');
+  passageProgress.hidden = !clock;
+  byId('prev-page').disabled = (state.viewTop <= 0 && state.page <= 1) || Boolean(run || clock);
+  byId('next-page').disabled = (state.viewTop >= clampWindowTop(Infinity, rowInfo.count) && state.page >= pages.length) || Boolean(run || clock);
   byId('prev-note').disabled = state.index <= 0 || Boolean(state.mic || run);
   byId('next-note').disabled = state.index >= notes.length - 1 || Boolean(state.mic || run);
   showPreview();
@@ -251,10 +258,16 @@ function refreshPracticeControls() {
   listen.querySelector('span').textContent = live ? 'Stop listening' : 'Start listening';
   listen.disabled = state.opening || !state.score || Boolean(run);
   endBarSelect.disabled = live || listen.disabled;
-  barSelect.disabled = Boolean(run);
-  bpmField.disabled = Boolean(run);
+  barSelect.disabled = Boolean(run || live || state.opening);
+  bpmField.disabled = Boolean(run || live || state.opening);
   instrumentSelect.disabled = Boolean(run);
-  modeSelect.disabled = Boolean(run);
+  followingSelect.disabled = Boolean(run || live || state.opening);
+  modeSelect.disabled = followingSelect.disabled;
+  const keepGoing = followingSelect.value === 'continuous';
+  byId('wait-scoring').hidden = keepGoing;
+  text('following-hint', keepGoing
+    ? 'The cursor moves at the reference tempo.'
+    : 'The cursor waits until you play the expected note.');
   retry.disabled = Boolean(run);
   // In full screen the side panel (with Start listening) is out of view, so this button
   // also starts the first take there; otherwise it appears once a take has run.
@@ -264,7 +277,7 @@ function refreshPracticeControls() {
   restartTakeButton.querySelector('span').textContent = hasTake ? 'Restart' : 'Start';
   restartTakeButton.title = hasTake ? 'Restart this take (R)' : 'Start listening (R)';
   restartTakeButton.disabled = state.opening || Boolean(run);
-  countInToggle.disabled = live;
+  countInToggle.disabled = live || state.opening;
   playbackToggle.disabled = !state.score || live || state.opening || run?.status === 'starting';
   playbackStop.disabled = !run;
   text('playback-toggle', run?.status === 'paused' ? 'Resume playback'
@@ -343,7 +356,7 @@ function showComparison(current) {
   if (!previous) {
     byId('comparison-metrics').replaceChildren();
     text('comparison-hint', current
-      ? 'Play the same passage at the same tempo to compare takes.'
+      ? 'Use the same passage, tempo, and following mode to compare takes.'
       : 'Finish the passage to compare takes.');
     return;
   }
@@ -351,6 +364,12 @@ function showComparison(current) {
   if (previous.overall !== null && current.overall !== null) {
     rows.unshift(['Overall accuracy', `${previous.overall}%`, `${current.overall}%`]);
     rows.push(['Rhythm', `${previous.rhythm}%`, `${current.rhythm}%`]);
+    if (previous.beatTiming !== null && current.beatTiming !== null) {
+      rows.push(['Beat timing', `${previous.beatTiming}%`, `${current.beatTiming}%`]);
+    }
+    if (previous.spacing !== null && current.spacing !== null) {
+      rows.push(['Note spacing', `${previous.spacing}%`, `${current.spacing}%`]);
+    }
   }
   rows.push(['Missed notes', previous.missed, current.missed]);
   byId('comparison-metrics').replaceChildren(...rows.map(([label, before, after]) => {
@@ -367,11 +386,13 @@ function showComparison(current) {
   }));
 }
 
-async function practise({ startIndex, startBar, endBar, bpm }) {
+async function practise({ startIndex, startBar, endBar, bpm, following, countInEnabled }) {
   if (state.opening || state.mic || state.playbackRun) return;
   jumpToIndex(startIndex);
   barSelect.value = String(startBar);
   endBarSelect.value = String(endBar);
+  followingSelect.value = following;
+  if (typeof countInEnabled === 'boolean') countInToggle.checked = countInEnabled;
   modeSelect.value = bpm === null ? 'free' : 'timed';
   if (bpm !== null) bpmField.value = String(bpm);
   showPreview();
@@ -382,7 +403,7 @@ async function practise({ startIndex, startBar, endBar, bpm }) {
 function showResults(take, cancelled) {
   const { matched, missed, extras, bpm } = take;
   const summary = summarize(take);
-  const { attempted, pitch, rhythm, overall } = summary;
+  const { attempted, pitch, rhythm, overall, beatTiming, spacing, intervals } = summary;
   const tolerance = bpm ? timingTolerance(bpm) : null;
   byId('results').hidden = false;
   text('results-summary', cancelled ? 'Count-in cancelled' : `${matched.length} of ${attempted} expected notes matched`);
@@ -400,13 +421,17 @@ function showResults(take, cancelled) {
   }
   if (bpm) metric('Overall accuracy', overall === null ? '—' : `${overall}%`);
   metric('Pitch accuracy', pitch === null ? '—' : `${pitch}%`);
-  if (bpm) metric('Rhythm', rhythm === null ? '—' : `${rhythm}%`);
-  else metric('Extra notes', String(extras.length));
+  if (bpm) {
+    metric('Rhythm', rhythm === null ? '—' : `${rhythm}%`);
+    metric('Beat timing', beatTiming === null ? '—' : `${beatTiming}%`);
+    metric('Note spacing', spacing === null ? '—' : `${spacing}%`);
+  } else metric('Extra notes', String(extras.length));
   byId('timing-detail').hidden = !bpm;
   if (bpm) {
+    const spacingText = spacing === null ? ' Play two neighbouring notes to measure spacing.' : '';
     text('timing-detail', rhythm === null
-      ? `Rhythm and overall accuracy need at least ${MIN_TIMED_MATCHES} matched notes. ${extras.length} extra.`
-      : `Overall is 60% pitch and 40% rhythm. Amber marks are outside ±${Number(tolerance.toFixed(1))} ms. ${extras.length} extra.`);
+      ? 'Play a scored passage to see a timing grade.'
+      : `Overall is 60% pitch and 40% rhythm. Rhythm uses beat timing and measured note spacing. ${extras.length} extra.${spacingText}`);
   }
   const list = byId('result-list');
   const items = [
@@ -415,6 +440,11 @@ function showResults(take, cancelled) {
     ...matched.map(({ note, delta }) => ({
       note, detail: delta === null ? 'Matched' : (Math.abs(delta) < 0.5 ? 'On beat' : `${Math.round(Math.abs(delta))} ms ${delta < 0 ? 'early' : 'late'}`),
       kind: delta !== null && Math.abs(delta) > tolerance ? 'timing' : null,
+    })),
+    ...intervals.filter(({ deltaMs, toleranceMs }) => Math.abs(deltaMs) > toleranceMs).map(({ previous, note, deltaMs }) => ({
+      note, name: `${midiName(previous.midi)} → ${midiName(note.midi)}`,
+      detail: `Gap ${Math.round(Math.abs(deltaMs))} ms too ${deltaMs < 0 ? 'short' : 'long'}`,
+      kind: 'timing',
     })),
   ].sort((a, b) => a.note.beat - b.note.beat);
   const mistakes = new Map(items.filter(({ kind }) => kind).map((item) => [item.note.id, item]));
@@ -429,7 +459,7 @@ function showResults(take, cancelled) {
     const result = document.createElement('span');
     button.type = 'button';
     if (kind) button.className = 'mistake-result';
-    name.textContent = `${barLabel(note.measure)} · ${midiName(note.midi)}`;
+    name.textContent = `${barLabel(note.measure)} · ${item.name ?? midiName(note.midi)}`;
     result.textContent = detail;
     button.append(name, result);
     button.addEventListener('click', () => {
@@ -602,11 +632,18 @@ function toggleFullscreen() {
 
 function stopListening({ report = true, complete = false } = {}) {
   const take = state.take;
-  const cancelled = Boolean(state.countIn && performance.now() < state.countIn.downbeat);
+  const now = performance.now();
+  const cancelled = Boolean(state.countIn && now < state.countIn.downbeat);
+  if (take?.following === 'continuous' && report && !cancelled) {
+    finalizeContinuousTake(take, now - DETECTION_GRACE_MS, complete);
+    if (complete) state.index = take.endIndex;
+    else barSelect.value = String(take.notes[state.index].measure);
+  }
   state.mic?.stop();
   state.mic = null;
   state.take = null;
   state.countIn = null;
+  state.clockPosition = null;
   if (complete) {
     state.completed = true;
     barSelect.value = String(take.startBar);
@@ -654,7 +691,38 @@ function goToPage(delta) {
   else refreshScore();
 }
 
-function signalUpdate(pitch, level) {
+function followClock(now) {
+  const { take, clockPosition } = state;
+  const duration = take.endBeat - take.startBeat;
+  const elapsed = Math.min(duration, Math.max(0, (now - take.downbeat) * take.bpm / 60_000));
+  if (now >= take.downbeat + duration * 60_000 / take.bpm + DETECTION_GRACE_MS) {
+    stopListening({ complete: true });
+    return true;
+  }
+
+  // Keep the visible position inside the selected passage while pending detections finish.
+  const beat = Math.min(take.endBeat - 1e-7, take.startBeat + elapsed);
+  const { bars, notes } = state.score;
+  let index = state.index;
+  while (index + 1 < take.endIndex && notes[index + 1].beat <= beat) index += 1;
+  const note = notes[index];
+  let measure = clockPosition.measure;
+  while (bars[measure + 1]?.beat <= beat) measure += 1;
+  const beatInBar = Math.floor(beat - bars[measure].beat + 1e-8) + 1;
+  const noteActive = note.beat <= beat && beat < note.beat + note.duration;
+  passageProgress.value = elapsed / duration;
+  if (state.index !== index || state.page !== note.page || clockPosition.measure !== measure
+    || clockPosition.beatInBar !== beatInBar || clockPosition.noteActive !== noteActive) {
+    state.index = index;
+    state.page = note.page;
+    state.clockPosition = { measure, beatInBar, noteActive };
+    refreshScore();
+  }
+  return false;
+}
+
+function signalUpdate(pitch) {
+  if (!state.take) return;
   const now = performance.now();
   const number = countdownNumber(state.countIn, now);
   if (number !== null) {
@@ -664,13 +732,18 @@ function signalUpdate(pitch, level) {
   }
   byId('count').hidden = true;
   showCountdown(null);
+  if (state.clockPosition && followClock(now)) return;
+
+  const waiting = state.take.following === 'wait' ? state.take.notes[state.take.cursor] : null;
   if (pitch) {
     state.lastSignal = now;
     text('detected-note', midiName(pitch.midi));
-    micLabel('Listening', 'active');
+    micLabel(waiting && pitch.midi !== waiting.midi
+      ? `Waiting for ${midiName(waiting.midi)}`
+      : waiting ? 'Listening' : 'Following the score', 'active');
   } else if (now - state.lastSignal > 250) {
     text('detected-note', '—');
-    micLabel(level > 0.015 ? 'Waiting for a clear note' : 'Listening · waiting for a note', 'active');
+    micLabel(waiting ? `Waiting for ${midiName(waiting.midi)}` : 'Following the score', 'active');
   }
 }
 
@@ -680,15 +753,25 @@ function receiveNote({ midi, at }) {
   // Ignore the count-in clicks (Scored tempo also guards this inside acceptNote).
   if (state.countIn && at < state.countIn.downbeat - COUNT_IN_GRACE_MS) return;
   const result = acceptNote(take, midi, at);
-  if (result.type !== 'matched') return;
+  if (result.type !== 'matched') {
+    if (take.following === 'wait' && result.type === 'extra') {
+      micLabel(`Waiting for ${midiName(take.notes[take.cursor].midi)}`, 'active');
+    }
+    return;
+  }
   state.matched = result.note;
-  state.page = result.note.page;
-  state.index = take.cursor;
   clearTimeout(state.matchTimer);
   state.matchTimer = setTimeout(() => {
     state.matched = null;
     refreshScore();
   }, 460);
+  if (take.following === 'continuous') {
+    refreshScore();
+    return;
+  }
+
+  state.page = result.note.page;
+  state.index = take.cursor;
   if (take.cursor === take.endIndex) {
     stopListening({ complete: true });
   } else {
@@ -700,8 +783,11 @@ function receiveNote({ midi, at }) {
 async function startListening() {
   if (!state.score || state.opening || state.playbackRun) return;
   if (state.completed) jumpToBar(Number(barSelect.value));
-  const bpm = modeSelect.value === 'timed' ? Number(bpmField.value) : null;
-  if (modeSelect.value === 'timed' && !bpmField.reportValidity()) return;
+  const following = followingSelect.value;
+  const countInEnabled = countInToggle.checked;
+  const timed = following === 'continuous' || modeSelect.value === 'timed';
+  if (timed && !bpmField.reportValidity()) return;
+  const bpm = timed ? Number(bpmField.value) : null;
   const score = state.score;
   state.opening = true;
   text('playback-status', '');
@@ -724,17 +810,23 @@ async function startListening() {
     const firstBeyondEnd = endBar === '' ? -1 : score.notes.findIndex((note) => note.measure > Number(endBar));
     const endIndex = firstBeyondEnd === -1 ? score.notes.length : firstBeyondEnd;
     const startBeat = firstOfBar ? startBar.beat : current.beat;
-    // Scored tempo counts in 4 beats at the target tempo; Follow (free tempo) uses a short
-    // fixed count-in. With the count-in off, Scored tempo anchors timing on the first note.
-    const countIn = !countInToggle.checked ? null : bpm ? { bpm, beats: 4 } : FOLLOW_COUNT_IN;
+    const endBeat = endBar === '' ? score.endBeat : score.bars[Number(endBar) + 1]?.beat ?? score.endBeat;
+    const countIn = !countInEnabled ? null : bpm ? { bpm, beats: 4 } : FOLLOW_COUNT_IN;
     state.countIn = countIn ? scheduleCountIn(mic.context, countIn.bpm, countIn.beats) : null;
-    const downbeat = bpm ? state.countIn?.downbeat ?? null : null;
+    // With no count-in, Keep going starts as soon as the microphone is ready.
+    // Scored Wait measures timing from its first correct note.
+    const downbeat = bpm ? state.countIn?.downbeat ?? (following === 'continuous' ? performance.now() : null) : null;
     state.take = {
-      ...createTake(score.notes, state.index, startBeat, bpm, downbeat, endIndex),
+      ...createTake(score.notes, state.index, startBeat, bpm, downbeat, endIndex, { following, endBeat }),
       startBar: startBar.index,
       endBar,
+      countInEnabled,
     };
     state.lastTakeSettings = restartSettings(state.take);
+    if (following === 'continuous') {
+      state.clockPosition = { measure: startBar.index, beatInBar: 1, noteActive: false };
+      followClock(state.take.downbeat);
+    }
     state.lastSignal = 0;
     byId('count').hidden = !state.countIn;
     showCountdown(countdownNumber(state.countIn, performance.now()));
@@ -864,8 +956,9 @@ practiseMistake.addEventListener('click', () => {
   const { take, selected } = state.review;
   const { startBar, endBar } = mistakePassage(take, selected.note.measure);
   const startIndex = take.notes.findIndex((note) => note.measure >= startBar);
-  return practise({ startIndex, startBar, endBar, bpm: take.bpm });
+  return practise({ ...restartSettings(take), startIndex, startBar, endBar });
 });
+followingSelect.addEventListener('change', refreshPracticeControls);
 barSelect.addEventListener('change', () => jumpToBar(Number(barSelect.value)));
 endBarSelect.addEventListener('change', showPreview);
 byId('prev-page').addEventListener('click', () => scrollRows(-1));

@@ -109,6 +109,7 @@ h1, h2, p { margin: 0; }
 .bar-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 10px; }
 .playback-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr)); align-items: end; gap: 10px; }
 .field label { display: block; margin: 0 0 5px; font-size: .875rem; font-weight: 690; }
+.field-hint { margin-top: 4px; color: var(--muted); font-size: .8125rem; }
 .field select, .bpm-input { border: 1px solid var(--line); border-radius: 8px; min-height: 42px; padding: 0 12px; width: 100%; color: var(--ink); background-color: #fbf7ef; font-size: .9375rem; }
 .field select { appearance: none; padding-right: 36px; background-repeat: no-repeat; background-position: right 12px center; background-size: 13px 13px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2366615a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); }
 .bar-fields select { padding-right: 26px; background-position: right 8px center; }
@@ -129,6 +130,7 @@ h1, h2, p { margin: 0; }
 .state-dot.active { background: var(--green); }
 .state-dot.error-dot { background: var(--red); }
 .count { margin-left: auto; color: var(--red); font-weight: 800; }
+.passage-progress { display: block; width: 100%; height: 7px; margin-top: 13px; accent-color: var(--red); }
 .note-readout { display: grid; grid-template-columns: 1fr 1fr; margin-top: 15px; border: 1px solid var(--line); border-radius: 8px; background: #fbf7ef; }
 .note-readout > div { padding: 9px 13px 8px; min-width: 0; }
 .note-readout > div + div { border-left: 1px solid var(--line); }
@@ -136,7 +138,8 @@ h1, h2, p { margin: 0; }
 .note-readout strong { display: block; color: var(--red); font: 400 1.95rem/1.12 var(--serif); margin-top: 2px; }
 .note-readout > div + div strong { color: var(--ink); }
 .result-scores.has-overall > div:first-child { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
-.result-scores.has-overall > div:nth-child(2) { border-left: 0; }
+.result-scores.has-overall > div:nth-child(even) { border-left: 0; }
+.result-scores.has-overall > div:nth-child(n+4) { border-top: 1px solid var(--line); }
 .page-preview { padding: 13px 20px 6px; border-top: 1px solid var(--line); }
 .page-preview p { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: .875rem; color: var(--muted); }
 .page-preview p svg { color: var(--red); }
