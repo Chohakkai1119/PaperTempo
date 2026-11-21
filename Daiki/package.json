@@ -1,0 +1,10 @@
+{
+  "name": "papertempo",
+  "private": true,
+  "type": "module",
+  "description": "PaperTempo: practise sheet music with live note following, page turns and pitch/timing feedback. Static site in dist/.",
+  "scripts": {
+    "start": "python -m http.server 8000 --directory dist",
+    "test": "node --test tests/"
+  }
+}
