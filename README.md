@@ -25,9 +25,9 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 ## Demo
 
 1. Open the included **Morning Lines** score.
-2. Choose **Bar 9**. The preview shows the first system on page two.
+2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The preview shows the first system on page two.
 3. Select **Start listening**. Play E4, D4, and C4, then pause. Play G4 when ready to confirm the first note of page two and turn the page.
-4. Stop listening to review the take. For timing feedback, choose **Scored tempo** before the take, follow the four-beat count-in, and play at least three expected notes. The timing tolerance is ±120 ms.
+4. Finish bar 10 to review the take, then select **Practise again** to replay those two bars. For timing feedback, choose **Scored tempo** before the take, follow the four-beat count-in, and play at least three expected notes. The timing tolerance is ±120 ms.
 
 The **How it works** panel links to the matching two-page A4 PDF and MusicXML files.
 
@@ -38,3 +38,7 @@ Upload partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). PaperTempo
 For a printed PDF, upload the PDF by itself and PaperTempo will convert it with its server-side optical music recognition engine, then open and download the resulting MusicXML. You can also select a PDF together with an existing MusicXML file to open the original PDF alongside that score without conversion. Check converted notes against the PDF before practising: optical recognition can misread notes and rhythms. Conversion currently accepts PDFs up to 20 MB and can take a few minutes on the first run while model weights are downloaded.
 
 Vendor files are bundled with the site. Verovio 6.4.1 is available from https://github.com/rism-digital/verovio/tree/version-6.4.1. The fonts and fflate include their licenses alongside the distributed files.
+
+## Hackathon materials
+
+Find the student guide, event slides, and project planning notes in [guides/](guides/).

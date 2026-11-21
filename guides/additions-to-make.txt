@@ -1,0 +1,35 @@
+PAPERTEMPO — ADDITIONS TO MAKE
+
+1. Loop a passage (build first)
+   - Let players choose a start and end bar, or select “Loop this passage” from a mistake in the results to retry that section immediately.
+   - Use bars 8–9 of Morning Lines for the demo so the loop crosses the hands-free page turn.
+
+2. Show mistakes on the sheet music
+   - After a take, mark missed notes directly on the score. In Scored tempo mode, label matched notes that landed early or late.
+
+3. Compare two takes
+   - Keep the last two takes in the browser. Compare pitch accuracy and timing for the same bars at the same tempo so players can see whether the retry improved.
+
+4. Add a Snowflake Cortex practice coach
+   - Add a “What should I practise next?” button to the results panel.
+   - Send bar numbers, missed notes and available timing offsets to a small backend. Have the backend call the Snowflake Cortex REST API and return one short drill with a target bar or range and a tempo. Keep microphone audio in the browser and the Snowflake credential on the backend.
+   - Example drill: “Play bars 8–9 at half tempo three times. Keep the beat steady through the page turn and focus on the first note of bar 9.”
+   - Add a “Try this drill” button that jumps to the suggested bar and sets the practice range and tempo.
+   - Another Snowflake option is to store practice results in Snowflake and compare progress across sessions.
+
+5. Add “Hear this passage”
+   - Play the selected bars at the target tempo so the player can hear the rhythm before retrying.
+
+6. Add a live music visualiser if entering Creative Tech
+   - Turn played notes into an animated ink trail across the staff.
+   - Recommended track: Retro Remix. Lead with how the hands-free page turn reimagines the paper score.
+
+JUDGING DEMO
+   - Play Morning Lines across the page break in Scored tempo mode.
+   - Show a missed, early or late note on the score, then loop bars 8–9 and compare the retry.
+   - If Cortex is ready, generate a drill live from the measured errors and use “Try this drill” to load it.
+   - Keep the JetBrains Air session available for judging.
+
+REFERENCE NOTES
+   - First Year Hack PPT.pptx suggests using a dataset or another Snowflake feature.
+   - MLH’s general Best Use of Snowflake brief highlights AI features powered by its API. Additional First Year Hack-specific requirements are unverified.
