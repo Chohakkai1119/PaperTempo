@@ -134,6 +134,22 @@ function extractScore(xml) {
   return { document, rawTitle, bars, events, notes, endBeat: beat };
 }
 
+// Elements that print a title, composer or credits on the engraved page. The app shows the
+// piece name in its own header, so these are removed before rendering. `(?=[\s>/])` stops
+// `<work` matching `<work-title` and `<credit` matching `<credit-words`.
+const TITLE_ELEMENTS = ['credit', 'work', 'movement-title', 'movement-number', 'creator', 'rights'];
+
+/** Removes title, composer and credit elements from MusicXML text (notes are untouched). */
+export function stripTitles(xml) {
+  let out = xml;
+  for (const name of TITLE_ELEMENTS) {
+    out = out
+      .replace(new RegExp(`<${name}(?=[\\s>/])[^>]*/>`, 'g'), '')
+      .replace(new RegExp(`<${name}(?=[\\s>/])[^>]*>[\\s\\S]*?</${name}>`, 'g'), '');
+  }
+  return out;
+}
+
 export async function engrave(xml, { sample = false, name = 'Imported score' } = {}) {
   const data = extractScore(xml);
   if (!modulePromise) {
@@ -155,7 +171,7 @@ export async function engrave(xml, { sample = false, name = 'Imported score' } =
       spacingSystem: 9, breaks: sample || data.document.querySelector('print[new-page="yes"]') ? 'line' : 'auto',
       header: 'none', footer: 'none', svgViewBox: true, mnumInterval: 1,
     });
-    if (!toolkit.loadData(new XMLSerializer().serializeToString(data.document.documentElement))) {
+    if (!toolkit.loadData(stripTitles(new XMLSerializer().serializeToString(data.document.documentElement)))) {
       throw new Error('The score could not be engraved.');
     }
     const totalPages = toolkit.getPageCount();
