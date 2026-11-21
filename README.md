@@ -9,6 +9,7 @@ Install [Node.js](https://nodejs.org/) and [uv](https://docs.astral.sh/uv/), the
 ```sh
 git clone https://github.com/pllopis/pdf2music.git
 cd pdf2music
+uv add "opencv-python>=4.13.0.92,<5" "opencv-python-headless>=4.13.0.92,<5"
 uv sync
 ```
 
@@ -33,7 +34,7 @@ The **How it works** panel links to the matching two-page A4 PDF and MusicXML fi
 
 ## Imports
 
-Upload partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). PaperTempo keeps the original notation visible and builds a single-note practice sequence from the first part: simultaneous chords resolve to their highest pitched note, overlapping lines resolve to the highest note at each onset, grace notes and unpitched percussion are skipped, and barline repeats are played once more. This conversion is intended for one-pitch-at-a-time microphone practice, so it does not preserve chord voicings or percussion in the practice sequence. The detector works best on clear, sustained pitches in a quiet room.
+Use single-part, single-voice partwise MusicXML (`.musicxml`, `.xml`, or compressed `.mxl`). Chords, overlapping voices, grace notes, repeats, and unpitched percussion are outside the supported score types. The detector works best on clear, sustained pitches in a quiet room. If you select a bar that starts with rests, the score retains those rests in the timing reference.
 
 For a printed PDF, upload the PDF by itself and PaperTempo will convert it with its server-side optical music recognition engine, then open and download the resulting MusicXML. You can also select a PDF together with an existing MusicXML file to open the original PDF alongside that score without conversion. Check converted notes against the PDF before practising: optical recognition can misread notes and rhythms. Conversion currently accepts PDFs up to 20 MB and can take a few minutes on the first run while model weights are downloaded.
 
