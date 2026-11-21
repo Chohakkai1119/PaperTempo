@@ -1,6 +1,7 @@
 import { clearMarks, engrave, markNote, markResult, midiName, musicXMLFromFile, notationElement } from './score.mjs';
 import { openMicrophone, scheduleCountIn } from './audio.mjs';
 import { createPlayback } from './playback.mjs';
+import { VISIBLE_ROWS, clampWindowTop, windowRows, windowTopForRow } from './rows.mjs';
 import {
   acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, mistakePassage,
   samePracticePassage, summarize, timingTolerance,
@@ -16,6 +17,7 @@ const state = {
   matched: null, matchTimer: null, mic: null, opening: false, take: null,
   countIn: null, lastSignal: 0, pdfURL: null, musicXMLURL: null, loading: 0, completed: false,
   review: null, completedTakes: [], playbackRun: null,
+  viewTop: 0, positionRow: null, rowBounds: null, rowWindowShown: false,
 };
 const notation = byId('notation');
 const preview = byId('preview-notation');
@@ -55,11 +57,79 @@ function barLabel(index) {
 function loadPageMarkup() {
   const score = state.score;
   if (state.page !== state.shownPage) {
-    notation.replaceChildren(notationElement(score.pages[state.page - 1]));
+    // The page sits in a track that slides inside a window showing VISIBLE_ROWS rows.
+    const frame = document.createElement('div');
+    const track = document.createElement('div');
+    frame.className = 'row-window';
+    track.className = 'row-track';
+    track.append(notationElement(score.pages[state.page - 1]));
+    frame.append(track);
+    notation.replaceChildren(frame);
     notation.scrollLeft = 0;
     state.shownPage = state.page;
+    state.rowBounds = null;
+    state.positionRow = null;
+    state.rowWindowShown = false;
   }
 }
+
+function pageRowInfo() {
+  return state.score.pageRows?.[state.page - 1] ?? { first: 0, count: 0 };
+}
+
+// Row edges in CSS pixels, measured from the rendered systems (re-measured on resize).
+function measureRows() {
+  const track = notation.querySelector('.row-track');
+  if (!track) return;
+  const base = track.getBoundingClientRect().top;
+  state.rowBounds = [...track.querySelectorAll('g.system')].map((system) => {
+    const box = system.getBoundingClientRect();
+    return { top: box.top - base, bottom: box.bottom - base };
+  });
+  state.trackHeight = track.getBoundingClientRect().height;
+}
+
+function applyRowWindow() {
+  const frame = notation.querySelector('.row-window');
+  const track = frame?.querySelector('.row-track');
+  if (!track) return;
+  if (!state.rowBounds) measureRows();
+  const rows = state.rowBounds;
+  const count = rows.length;
+  if (!count || !state.trackHeight) return;
+  const top = clampWindowTop(state.viewTop, count);
+  state.viewTop = top;
+  const end = top + VISIBLE_ROWS;
+  const from = top === 0 ? 0 : (rows[top - 1].bottom + rows[top].top) / 2;
+  const to = end >= count ? state.trackHeight : (rows[end - 1].bottom + rows[end].top) / 2;
+  frame.classList.toggle('is-instant', !state.rowWindowShown);
+  frame.style.height = `${Math.ceil(to - from)}px`;
+  track.style.transform = `translateY(${-from}px)`;
+  state.rowWindowShown = true;
+}
+
+/** Scroll the window by whole rows; past either end, move to the neighbouring page (long scores). */
+function scrollRows(delta) {
+  if (!state.score || state.playbackRun) return;
+  const { count } = pageRowInfo();
+  const top = state.viewTop + delta;
+  if (top !== clampWindowTop(top, count)) return void goToPage(delta);
+  state.viewTop = top;
+  refreshScore();
+}
+
+let observedWidth = 0;
+new ResizeObserver(() => {
+  // Only width changes rescale the music; height changes come from the window itself.
+  if (notation.clientWidth === observedWidth) return;
+  observedWidth = notation.clientWidth;
+  if (!state.score || !notation.querySelector('.row-track')) return;
+  state.rowBounds = null;
+  const shown = state.rowWindowShown;
+  state.rowWindowShown = false; // re-fit without animating
+  applyRowWindow();
+  state.rowWindowShown = shown;
+}).observe(notation);
 
 function trackNoteVisibility(note) {
   if (!note || notation.scrollWidth <= notation.clientWidth) return;
@@ -121,11 +191,28 @@ function refreshScore() {
   trackNoteVisibility(highlighted?.page === state.page
     ? markNote(notation, highlighted.id, run ? 'playback' : 'expected') : null);
   refreshReview();
-  text('page-label', `Page ${state.page} of ${pages.length}`);
-  text('position', `${barLabel(position.measure)} · Page ${position.page}`);
+
+  // Follow the player: when their position moves to another row, re-aim the window so
+  // that row is second from the top (it starts moving once they reach the 3rd row).
+  // Between row changes the window stays put, so manual row scrolling is respected.
+  const rowInfo = pageRowInfo();
+  if (position.page === state.page && position.row !== undefined) {
+    const localRow = position.row - rowInfo.first;
+    if (localRow !== state.positionRow) {
+      state.positionRow = localRow;
+      state.viewTop = windowTopForRow(localRow, rowInfo.count);
+    }
+  }
+  applyRowWindow();
+  const { first, last } = windowRows(state.viewTop, rowInfo.count);
+  const rowsText = rowInfo.count <= VISIBLE_ROWS
+    ? `${state.score.rowCount} ${state.score.rowCount === 1 ? 'row' : 'rows'}`
+    : `Rows ${rowInfo.first + first + 1}–${rowInfo.first + last + 1} of ${state.score.rowCount}`;
+  text('page-label', pages.length > 1 ? `${rowsText} · Page ${state.page} of ${pages.length}` : rowsText);
+  text('position', `${barLabel(position.measure)} · Row ${position.row + 1}`);
   text('expected-note', !run && next ? midiName(next.midi) : '—');
-  byId('prev-page').disabled = state.page <= 1 || Boolean(run);
-  byId('next-page').disabled = state.page >= pages.length || Boolean(run);
+  byId('prev-page').disabled = (state.viewTop <= 0 && state.page <= 1) || Boolean(run);
+  byId('next-page').disabled = (state.viewTop >= clampWindowTop(Infinity, rowInfo.count) && state.page >= pages.length) || Boolean(run);
   byId('prev-note').disabled = state.index <= 0 || Boolean(state.mic || run);
   byId('next-note').disabled = state.index >= notes.length - 1 || Boolean(state.mic || run);
   showPreview();
@@ -611,8 +698,8 @@ function mount(score, pdf = null, convertedXML = null) {
   text('score-heading', score.title);
   text('paper-title', score.title);
   text('paper-subtitle', score.sample ? 'A short study for solo melody' : '');
-  const count = score.pages.length;
-  text('score-meta', `${label} · ${count} ${count === 1 ? 'page' : 'pages'}`);
+  const count = score.rowCount;
+  text('score-meta', `${label} · ${count} ${count === 1 ? 'row' : 'rows'}`);
   const lastBar = score.notes.at(-1).measure;
   const practiceBars = score.bars.slice(0, lastBar + 1);
   barSelect.replaceChildren(...practiceBars.map((bar) => new Option(barLabel(bar.index), bar.index)));
@@ -698,8 +785,8 @@ practiseMistake.addEventListener('click', () => {
 });
 barSelect.addEventListener('change', () => jumpToBar(Number(barSelect.value)));
 endBarSelect.addEventListener('change', showPreview);
-byId('prev-page').addEventListener('click', () => goToPage(-1));
-byId('next-page').addEventListener('click', () => goToPage(1));
+byId('prev-page').addEventListener('click', () => scrollRows(-1));
+byId('next-page').addEventListener('click', () => scrollRows(1));
 byId('prev-note').addEventListener('click', () => jumpToIndex(state.index - 1));
 byId('next-note').addEventListener('click', () => jumpToIndex(state.index + 1));
 byId('load-sample').addEventListener('click', () => void loadSample());

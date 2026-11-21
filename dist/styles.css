@@ -72,6 +72,11 @@ h1, h2, p { margin: 0; }
 .paper-heading span { display: inline-block; color: var(--muted); font-size: .8125rem; margin-top: 4px; }
 .notation { min-width: 0; overflow-x: auto; }
 .notation > svg { width: 100%; height: auto; display: block; min-width: 470px; }
+.notation .row-window { overflow: hidden; min-width: 470px; transition: height .32s ease; }
+.notation .row-track { transition: transform .32s ease; will-change: transform; }
+.notation .row-track > svg { width: 100%; height: auto; display: block; }
+.notation .row-window.is-instant, .notation .row-window.is-instant .row-track { transition: none; }
+@media (prefers-reduced-motion: reduce) { .notation .row-window, .notation .row-track { transition: none; } }
 .notation svg :is(ellipse, path, polygon, polyline, rect) { stroke: currentColor; }
 .notation g:is(.ending, .fing, .reh, .tempo) { font-weight: bold; }
 .notation g:is(.dir, .dynam, .mNum) { font-style: italic; }
