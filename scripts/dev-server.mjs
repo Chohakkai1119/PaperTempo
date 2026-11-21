@@ -28,6 +28,7 @@ const MIME = {
   '.png': 'image/png',
   '.woff2': 'font/woff2',
   '.pdf': 'application/pdf',
+  '.wav': 'audio/wav',
   '.musicxml': 'application/vnd.recordare.musicxml+xml',
   '.mxl': 'application/vnd.recordare.musicxml',
   '.xml': 'application/xml',

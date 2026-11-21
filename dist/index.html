@@ -23,6 +23,8 @@
     <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l3-7 4 14 4-10 3 3h3"/></symbol>
     <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4m-8 5h4m-4 4h4"/></symbol>
   </svg>
 
@@ -33,8 +35,8 @@
         <span>Paper<span class="brand-accent">Tempo</span></span>
       </a>
       <nav aria-label="Main navigation">
-        <a class="nav-current" href="#practice" aria-current="page">Practice room</a>
         <button class="nav-link" data-help type="button">How it works</button>
+        <a class="nav-current" href="#practice" aria-current="page">Practice room</a>
       </nav>
       <button class="button button-outline upload-button" id="open-upload" type="button"><svg><use href="#i-upload"/></svg>Upload score</button>
     </div>
@@ -71,6 +73,8 @@
             <a class="button button-subtle" id="original-pdf" href="#" target="_blank" rel="noopener" hidden><svg><use href="#i-file"/></svg>Original PDF</a>
             <a class="button button-subtle" id="download-musicxml" href="#" download hidden><svg><use href="#i-file"/></svg>MusicXML</a>
             <button class="button button-subtle" id="load-sample" type="button"><svg><use href="#i-book"/></svg>Load sample</button>
+            <button class="button button-outline" id="restart-take" type="button" title="Restart this take (R)" aria-keyshortcuts="R" hidden><svg><use href="#i-restart"/></svg><span>Restart</span></button>
+            <button class="button button-subtle" id="fullscreen-toggle" type="button" title="Full screen (F)" aria-keyshortcuts="F" hidden><svg><use href="#i-expand"/></svg><span>Full screen</span></button>
           </div>
         </header>
         <div class="score-review" id="score-review" hidden>
@@ -79,15 +83,15 @@
         </div>
         <div class="score-stage">
           <div class="score-paper" id="score-paper" aria-label="Sheet music">
-            <div class="paper-heading" id="paper-heading"><p id="paper-title">Morning Lines</p><span id="paper-subtitle">A short study for solo melody</span></div>
             <div id="notation" class="notation"><p class="score-message">Loading sheet music…</p></div>
           </div>
+          <div class="countdown" id="countdown" aria-live="assertive" hidden><strong id="countdown-number"></strong><span id="countdown-label">Get ready</span></div>
         </div>
         <div class="score-footer">
           <div class="page-controls" aria-label="Score pages">
-            <button class="button button-square" id="prev-page" type="button" aria-label="Previous page" title="Previous page"><svg><use href="#i-left"/></svg></button>
-            <span id="page-label">Page 1 of 2</span>
-            <button class="button button-square" id="next-page" type="button" aria-label="Next page" title="Next page"><svg><use href="#i-right"/></svg></button>
+            <button class="button button-square" id="prev-page" type="button" aria-label="Scroll up one row" title="Scroll up one row"><svg><use href="#i-left"/></svg></button>
+            <span id="page-label">Rows 1–4</span>
+            <button class="button button-square" id="next-page" type="button" aria-label="Scroll down one row" title="Scroll down one row"><svg><use href="#i-right"/></svg></button>
           </div>
           <div class="note-controls" aria-label="Move note highlight">
             <button class="button button-text" id="prev-note" type="button" title="Previous note"><svg><use href="#i-left"/></svg>Previous note</button>
@@ -111,8 +115,26 @@
               <div class="field"><label for="start-bar">Start at</label><select id="start-bar"><option>Bar 1</option></select></div>
               <div class="field"><label for="end-bar">End after</label><select id="end-bar" disabled><option value="">End of score</option></select></div>
             </div>
-            <div class="field"><label for="practice-mode">Practice mode</label><select id="practice-mode"><option value="free">Free tempo</option><option value="timed">Scored tempo</option></select></div>
-            <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
+            <div class="field">
+              <label for="following-mode">Score following</label>
+              <select id="following-mode">
+                <option value="continuous">Keep going</option>
+                <option value="wait">Wait for the right note</option>
+              </select>
+              <p class="field-hint" id="following-hint">The cursor moves at the reference tempo.</p>
+            </div>
+            <div class="field" id="wait-scoring" hidden>
+              <label for="practice-mode">Timing in wait mode</label>
+              <select id="practice-mode"><option value="timed">Scored tempo</option><option value="free">Free tempo</option></select>
+            </div>
+            <label class="toggle-field" for="count-in"><input id="count-in" type="checkbox" checked><span>Count-in</span><small>Clicks and a countdown before listening starts</small></label>
+            <div class="playback-fields">
+              <div class="field"><label for="bpm">Reference tempo</label><div class="bpm-input"><input id="bpm" type="number" min="40" max="200" step="1" value="88" required><span>BPM</span></div></div>
+              <div class="field">
+                <label for="playback-instrument">Playback instrument</label>
+                <select id="playback-instrument"><option value="piano">Piano</option></select>
+              </div>
+            </div>
           </div>
           <div class="playback-controls">
             <button class="button button-outline" id="playback-toggle" type="button" disabled>Hear this passage</button>
@@ -128,6 +150,7 @@
             <span class="icon-tile"><svg><use href="#i-wave"/></svg></span>
             <div><h2 id="live-heading">Live tracking</h2><p id="position">Bar 1 · Page 1</p></div>
           </div>
+          <progress class="passage-progress" id="passage-progress" aria-label="Progress through the passage" max="1" value="0" hidden></progress>
           <div class="note-readout">
             <div><span>Expected</span><strong id="expected-note">C4</strong></div>
             <div><span>Detected</span><strong id="detected-note">—</strong></div>
@@ -160,7 +183,7 @@
             </div>
             <p class="coach-error" id="coach-error" role="alert" hidden></p>
           </div>
-          <button class="button button-outline retry-button" id="retry" type="button">Practise again</button>
+          <button class="button button-outline retry-button" id="retry" type="button" title="Restart this take (R)" aria-keyshortcuts="R"><svg><use href="#i-restart"/></svg>Restart</button>
         </section>
       </aside>
     </div>
@@ -183,9 +206,8 @@
     <h2 id="help-heading">How it works</h2>
     <ol class="help-steps">
       <li><strong>Open a score.</strong> Use Morning Lines or upload a single-melody MusicXML file.</li>
-      <li><strong>Hear a passage.</strong> Choose the bars and reference tempo, then select Hear this passage to follow the notes across pages.</li>
-      <li><strong>Play it yourself.</strong> Turn on your microphone and play one note at a time. Choose Scored tempo for a four-beat count-in and a score based on pitch and rhythm.</li>
-      <li><strong>Play across the page break.</strong> PaperTempo previews the next page and turns when you play its first note.</li>
+      <li><strong>Hear a passage.</strong> Choose the bars, reference tempo, and playback instrument. Select Hear this passage to follow the highlighted notes.</li>
+      <li><strong>Play it yourself.</strong> Keep going follows the reference tempo and grades the passage at the end. Choose Wait for the right note to advance only when you play the expected pitch.</li>
       <li><strong>Review your take.</strong> Select a mistake to see it on the score and practise those bars again. Finish two takes of the same passage at the same tempo to compare them.</li>
     </ol>
     <div class="help-downloads"><a class="button button-subtle" href="assets/morning-lines.musicxml" download>Sample MusicXML</a><a class="button button-subtle" href="assets/morning-lines.pdf" download>Sample PDF</a></div>

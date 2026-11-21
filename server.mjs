@@ -150,6 +150,7 @@ const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.pdf': 'application/pdf',
   '.musicxml': 'application/vnd.recordare.musicxml+xml; charset=utf-8', '.woff2': 'font/woff2',
+  '.wav': 'audio/wav',
 };
 
 createServer(async (request, response) => {

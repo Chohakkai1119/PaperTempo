@@ -1,8 +1,19 @@
+import { INSTRUMENTS } from './instruments.mjs';
+
 const START_LEAD_SECONDS = 0.04;
 const LOOKAHEAD_SECONDS = 0.25;
 const SCHEDULE_INTERVAL_MS = 25;
+const PLAYBACK_GAIN = 0.65;
 
-function passageNotes(events, startBeat, endBeat, bpm) {
+export class InstrumentSampleError extends Error {}
+
+async function fetchSample(context, file) {
+  const response = await fetch(file);
+  if (!response.ok) throw new Error(`Audio sample returned ${response.status}.`);
+  return context.decodeAudioData(await response.arrayBuffer());
+}
+
+function passageNotes(events, startBeat, endBeat, bpm, samples) {
   const secondsPerBeat = 60 / bpm;
   const notes = [];
   for (const note of events) {
@@ -11,7 +22,16 @@ function passageNotes(events, startBeat, endBeat, bpm) {
     const start = Math.max(note.beat, startBeat);
     const end = Math.min(note.beat + note.duration, endBeat);
     if (end > start) {
-      notes.push({ note, start: (start - startBeat) * secondsPerBeat, end: (end - startBeat) * secondsPerBeat });
+      const sample = samples.reduce((nearest, candidate) => (
+        Math.abs(candidate.midi - note.midi) < Math.abs(nearest.midi - note.midi) ? candidate : nearest
+      ));
+      notes.push({
+        note,
+        sample,
+        onset: (note.beat - startBeat) * secondsPerBeat,
+        start: (start - startBeat) * secondsPerBeat,
+        end: (end - startBeat) * secondsPerBeat,
+      });
     }
   }
   return notes.sort((a, b) => a.start - b.start);
@@ -26,6 +46,7 @@ export function createPlayback({
   onNote,
   onEnd,
   createContext = audioContext,
+  loadSample = fetchSample,
   requestFrame = (callback) => requestAnimationFrame(callback),
   cancelFrame = (id) => cancelAnimationFrame(id),
   scheduleInterval = (callback, delay) => setInterval(callback, delay),
@@ -38,6 +59,7 @@ export function createPlayback({
   let scheduler = null;
   let frame = null;
   const voices = new Set();
+  const samples = new Map();
 
   function highlight(note) {
     if (note === highlighted) return;
@@ -50,11 +72,11 @@ export function createPlayback({
     if (frame !== null) cancelFrame(frame);
     scheduler = null;
     frame = null;
-    for (const { oscillator, gain } of voices) {
-      oscillator.onended = null;
-      oscillator.disconnect();
+    for (const { source, gain } of voices) {
+      source.onended = null;
+      source.disconnect();
       gain.disconnect();
-      oscillator.stop();
+      source.stop();
     }
     voices.clear();
   }
@@ -66,41 +88,68 @@ export function createPlayback({
     highlight(null);
   }
 
-  function sound(note, start, end) {
-    const oscillator = context.createOscillator();
+  function sampleBuffer(file) {
+    if (!samples.has(file)) {
+      const pending = Promise.resolve().then(() => loadSample(context, file)).catch((cause) => {
+        samples.delete(file);
+        throw new InstrumentSampleError('Could not load the instrument audio. Try again.', { cause });
+      });
+      samples.set(file, pending);
+    }
+    return samples.get(file);
+  }
+
+  function sound(event, buffer, start, end, elapsed) {
+    const { note, sample } = event;
+    const rate = 2 ** ((note.midi - sample.midi) / 12);
+    const loop = sample.loop;
+    let offset = elapsed * rate;
+    if (loop && offset >= loop[1]) {
+      offset = loop[0] + (offset - loop[0]) % (loop[1] - loop[0]);
+    }
+    if (offset >= buffer.duration) return;
+    const source = context.createBufferSource();
     const gain = context.createGain();
-    const duration = end - start;
-    oscillator.type = 'triangle';
-    oscillator.frequency.value = 440 * 2 ** ((note.midi - 69) / 12);
+    source.buffer = buffer;
+    source.playbackRate.value = rate;
+    if (loop) {
+      source.loop = true;
+      [source.loopStart, source.loopEnd] = loop;
+    }
+    const soundEnd = loop ? end : Math.min(end, start + (buffer.duration - offset) / rate);
+    const duration = soundEnd - start;
     gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(0.14, start + Math.min(0.009, duration * 0.2));
-    gain.gain.linearRampToValueAtTime(0.075, end - Math.min(0.045, duration * 0.35));
-    gain.gain.linearRampToValueAtTime(0, end);
-    oscillator.connect(gain).connect(context.destination);
-    const voice = { oscillator, gain };
+    gain.gain.linearRampToValueAtTime(PLAYBACK_GAIN, start + Math.min(0.004, duration * 0.2));
+    gain.gain.setValueAtTime(PLAYBACK_GAIN, soundEnd - Math.min(0.035, duration * 0.35));
+    gain.gain.linearRampToValueAtTime(0, soundEnd);
+    source.connect(gain).connect(context.destination);
+    const voice = { source, gain };
     voices.add(voice);
-    oscillator.onended = () => {
+    source.onended = () => {
       voices.delete(voice);
-      oscillator.disconnect();
+      source.disconnect();
       gain.disconnect();
     };
-    oscillator.start(start);
-    oscillator.stop(end);
+    source.start(start, offset);
+    source.stop(soundEnd);
   }
 
   async function start(current) {
     const token = ++revision;
     current.phase = 'starting';
+    let buffers;
     try {
       context ??= createContext();
       await context.resume();
+      if (token !== revision) return false;
+      const files = new Set(current.notes.map(({ sample }) => sample.file));
+      buffers = new Map(await Promise.all([...files].map(async (file) => [file, await sampleBuffer(file)])));
     } catch (error) {
       if (token !== revision) return false;
       stop();
       throw error;
     }
     if (token !== revision) return false;
-
     current.phase = 'playing';
     const audibleStart = context.currentTime + START_LEAD_SECONDS;
     current.anchor = audibleStart - current.position;
@@ -118,10 +167,13 @@ export function createPlayback({
       }
       const horizon = now + LOOKAHEAD_SECONDS;
       while (nextSound < current.notes.length && current.anchor + current.notes[nextSound].start <= horizon) {
-        const { note, start, end } = current.notes[nextSound++];
-        const scheduledStart = Math.max(audibleStart, current.anchor + start, now);
-        const scheduledEnd = current.anchor + end;
-        if (scheduledEnd > scheduledStart) sound(note, scheduledStart, scheduledEnd);
+        const event = current.notes[nextSound++];
+        const scheduledStart = Math.max(audibleStart, current.anchor + event.start, now);
+        const scheduledEnd = current.anchor + event.end;
+        if (scheduledEnd > scheduledStart) {
+          const elapsed = Math.max(0, scheduledStart - (current.anchor + event.onset));
+          sound(event, buffers.get(event.sample.file), scheduledStart, scheduledEnd, elapsed);
+        }
       }
     }
 
@@ -140,11 +192,12 @@ export function createPlayback({
     return true;
   }
 
-  function play(events, { startBeat, endBeat, bpm }) {
+  function play(events, { startBeat, endBeat, bpm, instrument = 'piano' }) {
     stop();
     if (!Number.isFinite(startBeat) || !Number.isFinite(endBeat) || endBeat <= startBeat
       || !Number.isFinite(bpm) || bpm <= 0) return Promise.resolve(false);
-    const notes = passageNotes(events, startBeat, endBeat, bpm);
+    const profile = Object.hasOwn(INSTRUMENTS, instrument) ? INSTRUMENTS[instrument] : INSTRUMENTS.piano;
+    const notes = passageNotes(events, startBeat, endBeat, bpm, profile.samples);
     if (!notes.length) return Promise.resolve(false);
     passage = { notes, duration: (endBeat - startBeat) * 60 / bpm, position: 0 };
     return start(passage);

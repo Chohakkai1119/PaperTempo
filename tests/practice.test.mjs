@@ -1,7 +1,10 @@
 // Score following and feedback (dist/practice.mjs) driven by timestamped note-on events.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptNote, completedTakeSummary, createTake, MIN_TIMED_MATCHES, summarize, timingTolerance } from '../dist/practice.mjs';
+import {
+  acceptNote, completedTakeSummary, createTake, finalizeContinuousTake, MIN_TIMED_MATCHES,
+  samePracticePassage, summarize, timingTolerance,
+} from '../dist/practice.mjs';
 import { sampleNotes, midi } from './helpers.mjs';
 
 const notes = sampleNotes();
@@ -162,4 +165,103 @@ test('partial take scores only attempted notes and cannot become a comparison ba
   const summary = summarize(take);
   assert.deepEqual(summary, { attempted: 4, pitch: 75, timing: 100, rhythm: 75, overall: 75, enoughTiming: true });
   assert.equal(completedTakeSummary(take, summary), null);
+});
+
+test('keep going recovers from wrong and missing notes, grades extras, and respects the selected end', () => {
+  const melody = [60, 62, 64, 65, 67].map((midi, beat) => ({ midi, beat, measure: 0 }));
+  const take = createTake(melody, 0, 0, 120, 1000, 4, { following: 'continuous', endBeat: 4 });
+  assert.equal(acceptNote(take, 62, 1080).type, 'extra', 'wrong notes cannot take an upcoming slot');
+  assert.equal(take.cursor, 0);
+  assert.equal(acceptNote(take, 62, 1500).type, 'matched');
+  assert.equal(acceptNote(take, 65, 2500).type, 'matched');
+  assert.equal(acceptNote(take, 67, 2800).type, 'extra', 'notes during the trailing gap are extras');
+  assert.equal(acceptNote(take, 67, 3000).type, 'ignored', 'input after the selected passage is outside the take');
+  assert.deepEqual(take.missed, [melody[0], melody[2]]);
+  assert.deepEqual(take.matched.map(({ note }) => note), [melody[1], melody[3]]);
+  assert.equal(completedTakeSummary(take, summarize(take)), null, 'matching the last note cannot finish the clock');
+  finalizeContinuousTake(take, 3000, true);
+  const summary = summarize(take);
+  assert.equal(summary.attempted, 4);
+  assert.equal(summary.pitch, 33, '2 correct of 4 written notes plus 2 extras');
+  assert.equal(summary.beatTiming, 50);
+  assert.equal(summary.spacing, null, 'does not measure a gap over a missed note');
+  assert.equal(summary.rhythm, 50);
+  assert.equal(summary.overall, 40);
+  assert.equal(completedTakeSummary(take, summary).following, 'continuous');
+});
+
+test('keep going assigns a repeated pitch to the closest written onset', () => {
+  const melody = [{ midi: 60, beat: 0 }, { midi: 60, beat: 0.5 }, { midi: 60, beat: 1 }];
+  const take = createTake(melody, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 2 });
+  const repeat = acceptNote(take, 60, 1250);
+  assert.equal(repeat.type, 'matched');
+  assert.equal(repeat.note, melody[1]);
+  assert.deepEqual(take.missed, [melody[0]]);
+  assert.equal(acceptNote(take, 60, 1290).type, 'extra');
+  assert.equal(acceptNote(take, 60, 1510).note, melody[2]);
+});
+
+test('constant lateness affects beat timing while preserving the written note spacing', () => {
+  const melody = [{ midi: 60, beat: 0 }, { midi: 67, beat: 2 }];
+  const take = createTake(melody, 0, 0, 120, 1000, 2, { following: 'continuous', endBeat: 3 });
+  acceptNote(take, 60, 1150);
+  acceptNote(take, 67, 2150);
+  finalizeContinuousTake(take, 2500, true);
+  const summary = summarize(take);
+  assert.deepEqual(summary.intervals, [{
+    previous: melody[0], note: melody[1], expectedMs: 1000, deltaMs: 0, toleranceMs: 140,
+  }]);
+  assert.equal(summary.beatTiming, 25);
+  assert.equal(summary.spacing, 100);
+  assert.equal(summary.rhythm, 63);
+  assert.equal(summary.overall, 85);
+});
+
+test('spacing compares written onsets including rests and uses a tighter window for shorter gaps', () => {
+  const melody = [{ midi: 60, beat: 0 }, { midi: 67, beat: 2 }, { midi: 69, beat: 2.5 }];
+  const take = createTake(melody, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 3 });
+  acceptNote(take, 60, 1150);
+  acceptNote(take, 67, 1900);
+  acceptNote(take, 69, 2250);
+  finalizeContinuousTake(take, 2500, true);
+  const summary = summarize(take);
+  assert.deepEqual(summary.intervals.map(({ expectedMs, deltaMs, toleranceMs }) => (
+    [expectedMs, deltaMs, toleranceMs]
+  )), [[1000, -250, 140], [250, 100, 50]]);
+  assert.equal(summary.spacing, 5);
+});
+
+test('a stopped continuous take grades elapsed attempts while silence through the end grades the whole passage', () => {
+  const melody = [60, 62, 64].map((midi, beat) => ({ midi, beat, measure: 0 }));
+  const take = createTake(melody, 0, 0, 120, 1000, 3, { following: 'continuous', endBeat: 3 });
+  finalizeContinuousTake(take, 1340, false);
+  const partial = summarize(take);
+  assert.equal(partial.attempted, 1);
+  assert.equal(partial.overall, 0);
+  assert.equal(completedTakeSummary(take, partial), null);
+  finalizeContinuousTake(take, 2500, true);
+  const full = summarize(take);
+  assert.equal(full.attempted, 3);
+  assert.equal(full.pitch, 0);
+  assert.equal(full.beatTiming, 0);
+  assert.equal(full.rhythm, 0);
+  assert.equal(full.overall, 0);
+  assert.equal(completedTakeSummary(take, full).missed, 3);
+});
+
+test('wait for the right note stays on the expected pitch and keeps free tempo playback unscored', () => {
+  const melody = [{ midi: 60, beat: 0 }, { midi: 62, beat: 1 }];
+  const take = createTake(melody, 0, 0, null, null, 2, { following: 'wait' });
+  assert.equal(acceptNote(take, 62, 600).type, 'extra');
+  assert.equal(acceptNote(take, 62, 1200).type, 'extra');
+  assert.equal(take.cursor, 0);
+  assert.equal(acceptNote(take, 60, 5000).type, 'matched');
+  assert.equal(acceptNote(take, 62, 8000).type, 'matched');
+  const summary = summarize(take);
+  assert.equal(take.missed.length, 0);
+  assert.equal(summary.pitch, 50);
+  assert.equal(summary.spacing, null);
+  assert.equal(summary.overall, null);
+  const stored = completedTakeSummary(take, summary);
+  assert.equal(samePracticePassage(stored, { ...stored, following: 'continuous' }), false);
 });

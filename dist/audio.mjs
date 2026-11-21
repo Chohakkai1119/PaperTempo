@@ -138,11 +138,34 @@ export async function openMicrophone() {
   }
 }
 
-export function scheduleCountIn(context, bpm) {
+// Follow (free tempo) mode has no target tempo, so it uses a short fixed count-in.
+export const FOLLOW_COUNT_IN = Object.freeze({ beats: 3, bpm: 90 });
+const COUNT_IN_LEAD_SECONDS = 0.12;
+
+/**
+ * Count-in timing on both clocks: `firstClick` on the AudioContext clock (for scheduling
+ * the clicks) and `start` / `downbeat` in performance.now() milliseconds (the clock the
+ * note detector timestamps with). The take's timing starts on `downbeat`, the beat
+ * straight after the last click.
+ */
+export function countInTiming({ contextNow, perfNow, bpm, beats = 4, lead = COUNT_IN_LEAD_SECONDS }) {
+  const beatMs = 60_000 / bpm;
+  const start = perfNow + lead * 1000;
+  return { firstClick: contextNow + lead, start, downbeat: start + beats * beatMs, beatMs, beats };
+}
+
+/** Number to show during the count-in (beats … 1), or null once the downbeat has arrived. */
+export function countdownNumber(countIn, now) {
+  if (!countIn || now >= countIn.downbeat) return null;
+  const elapsed = Math.max(0, Math.floor((now - countIn.start) / countIn.beatMs));
+  return Math.max(1, countIn.beats - elapsed);
+}
+
+export function scheduleCountIn(context, bpm, beats = 4) {
+  const timing = countInTiming({ contextNow: context.currentTime, perfNow: performance.now(), bpm, beats });
   const beat = 60 / bpm;
-  const first = context.currentTime + 0.12;
-  const start = performance.now() + (first - context.currentTime) * 1000;
-  for (let index = 0; index < 4; index += 1) {
+  const first = timing.firstClick;
+  for (let index = 0; index < beats; index += 1) {
     const time = first + index * beat;
     const oscillator = context.createOscillator();
     const gain = context.createGain();
@@ -154,5 +177,5 @@ export function scheduleCountIn(context, bpm) {
     oscillator.start(time);
     oscillator.stop(time + 0.06);
   }
-  return { start, downbeat: start + 4 * beat * 1000, beatMs: beat * 1000 };
+  return timing;
 }

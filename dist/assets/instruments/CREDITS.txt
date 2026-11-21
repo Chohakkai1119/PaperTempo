@@ -1,0 +1,62 @@
+PaperTempo instrument recordings
+
+Piano, nylon-string guitar, and steel-string guitar recordings by the Meta Creative Audio team.
+Meta Open Sound: https://github.com/facebookincubator/Meta-open-sound
+License: CC0 1.0 Universal (https://github.com/facebookincubator/Meta-open-sound/blob/main/LICENSE).
+Piano uses velocity layer 3, nylon guitar uses the fingerstyle layer, and steel-string guitar uses velocity layer 2.
+
+Flute and violin recordings by Sam Gossner and Simon Dalzell, cut by Elan Hickler/Soundemote.
+VS Chamber Orchestra Community Edition: https://github.com/sgossner/VSCO-2-CE
+License: CC0 1.0 Universal (https://github.com/sgossner/VSCO-2-CE/blob/master/LICENSE).
+Flute uses non-vibrato sustains and violin uses forte bowed vibrato. Flute root notes follow the official SFZ mapping:
+https://raw.githubusercontent.com/sgossner/VSCO-2-CE/SFZ/FluteSusNV.sfz
+
+PaperTempo edits: mono 24 kHz PCM, trimmed onsets and tails, gain normalization, and crossfaded sustain loops for flute and violin.
+
+Each bundled file and its original download:
+piano/36.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_C2_01.ogg
+piano/48.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_C3_01.ogg
+piano/55.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_G3_01.ogg
+piano/60.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_C4_01.ogg
+piano/64.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_E4_01.ogg
+piano/69.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_A4_01.ogg
+piano/72.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_C5_01.ogg
+piano/84.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_C6_01.ogg
+piano/96.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-piano/ogg/INSPiano_Vel03_C7_01.ogg
+guitar/40.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringLowE_Vel01Finger_E2_01.ogg
+guitar/45.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringA_Vel01Finger_A2_01.ogg
+guitar/50.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringD_Vel01Finger_D3_01.ogg
+guitar/55.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringG_Vel01Finger_G3_01.ogg
+guitar/59.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringB_Vel01Finger_B3_01.ogg
+guitar/64.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringHighE_Vel01Finger_E4_01.ogg
+guitar/67.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringHighE_Vel01Finger_G4_01.ogg
+guitar/72.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringHighE_Vel01Finger_C5_01.ogg
+guitar/79.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringHighE_Vel01Finger_G5_01.ogg
+guitar/83.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/ogg/INSGuitarNylon_StringHighE_Vel01Finger_B5_01.ogg
+steel-guitar/40.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringLowE_Vel02_E2_01.ogg
+steel-guitar/45.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringA_Vel02_A2_01.ogg
+steel-guitar/50.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringD_Vel02_D3_01.ogg
+steel-guitar/55.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringG_Vel02_G3_01.ogg
+steel-guitar/59.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringB_Vel02_B3_01.ogg
+steel-guitar/64.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringHighE_Vel02_E4_01.ogg
+steel-guitar/67.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringHighE_Vel02_G4_01.ogg
+steel-guitar/72.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringHighE_Vel02_C5_01.ogg
+steel-guitar/79.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringHighE_Vel02_G5_01.ogg
+steel-guitar/83.wav  https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-steel-guitar/ogg/INSGuitarSteel_StringHighE_Vel02_B5_01.ogg
+flute/60.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_C3_v1_1.wav
+flute/64.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_E3_v1_1.wav
+flute/69.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_A3_v1_1.wav
+flute/72.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_C4_v1_1.wav
+flute/76.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_E4_v1_1.wav
+flute/81.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_A4_v1_1.wav
+flute/84.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_C5_v1_1.wav
+flute/88.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_E5_v1_1.wav
+flute/93.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_A5_v1_1.wav
+flute/96.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Woodwinds/Flute/susNV/LDFlute_susNV_C6_v1_1.wav
+violin/55.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_G3_f.wav
+violin/60.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_C4_f.wav
+violin/64.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_E4_f.wav
+violin/72.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_C5_f.wav
+violin/79.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_G5_f.wav
+violin/84.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_C6_f.wav
+violin/91.wav  https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Violin/Arco%20Vib/LLVln_ArcoVib_G6_f.wav

@@ -26,12 +26,17 @@ Uploaded PDFs are temporarily stored on the server while converting, then remove
 ## Demo
 
 1. Open the included **Morning Lines** score.
-2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The preview shows the first system on page two.
-3. Set the **Reference tempo** and choose **Hear this passage**. Playback follows the single-note practice line and turns the page. Use **Pause playback** to resume from the same spot or **Stop playback** to return to practice.
-4. Select **Scored tempo** and **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Play G4 on the first beat of bar 10 to turn the page, then finish the bar.
-5. Select the missed D4 to see it marked on page one. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** shows the results from both completed takes at the same tempo.
+2. Set **Start at** to **Bar 9** and **End after** to **Bar 10**. The score window shows the selected passage.
+3. Set the **Reference tempo**, choose a **Playback instrument**, then select **Hear this passage**. Playback uses instrument recordings bundled with PaperTempo, and the score window follows the highlighted notes. Use **Pause playback** to resume from the same spot or **Stop playback** to try another instrument before playing again.
+4. Leave **Score following** on **Keep going** and select **Start listening**. After the four-beat count-in, play E4 and C4 at their written beats, leaving out D4. Watch the cursor continue through bar 10. Results appear automatically at the end of the passage.
+5. Select the missed D4 to see it marked on the score. Choose **Practise bars 9–10**, then play the passage again with D4 included. **Take comparison** compares completed takes of the same passage at the same tempo and in the same following mode.
+6. To drill pitches at your own pace, choose **Wait for the right note**. The cursor advances when you play the expected pitch. Choose **Scored tempo** to rate timing against the reference tempo or **Free tempo** for pitch feedback.
 
-Scored tempo combines 60% pitch accuracy with 40% rhythm. Rhythm credit decreases with onset error and missed notes earn no credit. The timing window scales with tempo from 70 to 140 ms, and rhythm and overall accuracy require at least three matched notes.
+Use **Count-in** to turn the clicks and countdown on or off. With it off, **Keep going** starts immediately and timed **Wait for the right note** anchors to the first correct note. **Restart** reuses your take settings.
+
+The overall grade weights pitch accuracy at 60% and rhythm at 40%. Rhythm uses beat timing and the spacing between neighbouring notes you matched. Beat timing measures each onset against the count-in. Note spacing compares the played time between attacks with the score, including written rests. Missed notes and extra pitches reduce the grade.
+
+The bundled [instrument recording credits](dist/assets/instruments/CREDITS.txt) list the source and license for each sample.
 
 The **How it works** panel links to the matching two-page A4 PDF and MusicXML files.
 
